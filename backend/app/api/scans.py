@@ -1,3 +1,4 @@
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -56,10 +57,13 @@ def list_scans(
     page: int = Query(default=1, ge=1, le=100000),
     page_size: int = Query(default=20, ge=1, le=100),
     connection_id: UUID | None = None,
+    status: Literal["QUEUED", "RUNNING", "COMPLETED", "FAILED", "CANCELLED"] | None = None,
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> ScanPage:
     filters = [ScanJob.connection_id == connection_id] if connection_id else []
+    if status:
+        filters.append(ScanJob.status == status)
     total = db.scalar(select(func.count()).select_from(ScanJob).where(*filters)) or 0
     items = db.scalars(
         select(ScanJob)

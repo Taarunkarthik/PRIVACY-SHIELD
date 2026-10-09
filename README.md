@@ -6,9 +6,9 @@ PrivacyShield is a PostgreSQL privacy platform being built in seven tested phase
 
 ## Current delivery
 
-Phases 1 and 2 provide the control-plane schema, authenticated API, React dashboard, Docker topology, synthetic target database, worker foundation, encrypted connection management, and schema discovery. Phase 3 scanning has passed local acceptance and awaits GitHub delivery verification. AI classification and policy enforcement remain later phases. Pages for unavailable capabilities say so; demonstration counts must never be presented as scanned findings.
+Phases 1–3 provide the control-plane schema, authenticated API, React dashboard, Docker topology, synthetic target database, encrypted connection management, schema discovery, and asynchronous PII scanning. All three phases passed local acceptance and GitHub delivery verification. Phase 4 adds local AI recommendations and has passed its real-model, worker and browser acceptance checks; GitHub delivery verification is pending. Policy enforcement remains a later phase. Pages for unavailable capabilities say so; demonstration counts must never be presented as scanned findings.
 
-Phases 1 and 2 are delivered: local checks, real browser workflows, remote commit confirmation, and GitHub Actions passed. The latest verified commit is [`c0c0100`](https://github.com/Taarunkarthik/PRIVACY-SHIELD/commit/c0c0100b2a8badf56526321bb65a6707cb48da4b). See [Phase 2 verification evidence](docs/verification-phase2.md) and [the delivery roadmap](docs/roadmap.md) for current status.
+Phases 1–3 are delivered: local checks, real browser workflows, remote commit confirmation, and GitHub Actions passed. The latest verified commit is [`7df4a37`](https://github.com/Taarunkarthik/PRIVACY-SHIELD/commit/7df4a373e0825064731f50857203af9bf2c55c7b). See [Phase 3 verification evidence](docs/verification-phase3.md) and [the delivery roadmap](docs/roadmap.md) for current status.
 
 The submission target is **12 October 2026**, with working code and a reproducible demonstration. The seven phase gates remain in place within the three-day work window; the schedule is a target, not a guarantee of completion.
 
@@ -47,7 +47,7 @@ With the Compose services already running, run the repository's Docker acceptanc
 python scripts/check.py --integration
 ```
 
-This validates Compose, lints/tests the backend, migrates a separate `privacyshield_test` database, exercises real PostgreSQL/Redis/Celery, and checks actual scanner/reader target permissions. It starts a temporary Linux worker on an isolated queue for test jobs and removes that worker afterward. It preserves the application database and retains test fixtures in the isolated test database. It does not start or build the application.
+This validates Compose, lints/tests the backend, migrates a separate `privacyshield_test` database, exercises real PostgreSQL/Redis/Celery, and checks actual scanner/reader target permissions. It starts a temporary Linux worker on an isolated queue and a controlled HTTP AI double, then removes both. The AI double tests orchestration and failure handling; it does not establish real model quality. The [separate AI smoke and demo](docs/classification.md) use actual Ollama. Checks preserve the application database and retain test fixtures in the isolated test database. They do not start or build the application.
 
 Add `--frontend` when Node 24/npm are installed on the host to include frontend installation, type checking, tests, and a production build:
 
@@ -73,7 +73,7 @@ Integration tests require migrated PostgreSQL, Redis, and a **separate Linux Cel
 
 ## Architecture and documentation
 
-The backend is a FastAPI modular monolith shared by API and Celery processes. A dedicated PostgreSQL database stores control-plane metadata. A second PostgreSQL service holds exclusively synthetic customer, account, transaction, and support data. Redis carries jobs; PostgreSQL stores authoritative job state. Ollama is an optional profile during the foundation phase.
+The backend is a FastAPI modular monolith shared by API and Celery processes. A dedicated PostgreSQL database stores control-plane metadata. A second PostgreSQL service holds exclusively synthetic customer, account, transaction, and support data. Redis carries jobs; PostgreSQL stores authoritative job state. Enable the optional `ai` profile for local Ollama recommendations.
 
 | Directory | Responsibility |
 | --- | --- |
@@ -88,14 +88,16 @@ The backend is a FastAPI modular monolith shared by API and Celery processes. A 
 - [Three-day delivery target and seven phase gates](docs/roadmap.md)
 - [Connection and discovery contract](docs/discovery.md)
 - [Bounded PII scanning and demo](docs/scanning.md)
+- [Local AI classification and actual model checks](docs/classification.md)
 - [Setup, testing, demo, and troubleshooting](docs/operations.md)
 - [Phase 1 verification evidence and limitations](docs/verification.md)
 - [Phase 2 verification evidence](docs/verification-phase2.md)
 - [Phase 3 verification evidence](docs/verification-phase3.md)
+- [Phase 4 verification evidence](docs/verification-phase4.md)
 
 ## Security and delivery rules
 
-Use only databases you are authorized to inspect. The bundled target is synthetic. PAN and Aadhaar detection in later phases identifies **candidates**, not verified identities. Findings will describe bounded samples rather than assert full-table coverage.
+Use only databases you are authorized to inspect. The bundled target is synthetic. PAN and Aadhaar detection identifies **candidates**, not verified identities. Findings describe bounded samples rather than assert full-table coverage.
 
 The connection API uses encrypted credential storage and write-only password inputs. Raw source samples, keys, and credentials must not appear in logs, task payloads, AI input, or committed files. AI recommendations will be advisory and unable to execute SQL. Policy deployment will use predefined SQL templates and a separate explicit approval action.
 

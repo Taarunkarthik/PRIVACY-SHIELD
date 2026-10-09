@@ -133,6 +133,7 @@ class ScanResult(Entity, Base):
     __tablename__ = "scan_results"
     __table_args__ = (
         UniqueConstraint("scan_job_id", "schema_name", "table_name", "column_name", "json_path"),
+        UniqueConstraint("id", "scan_job_id", name="uq_scan_results_id_scan_job"),
         CheckConstraint("sampled_rows >= 0", name="nonnegative_sampled_rows"),
         CheckConstraint("matching_rows BETWEEN 0 AND sampled_rows", name="valid_matching_rows"),
         CheckConstraint("confidence BETWEEN 0 AND 1", name="valid_confidence"),
@@ -154,9 +155,69 @@ class ScanResult(Entity, Base):
     )
 
 
+class ClassificationJob(Entity, Base):
+    __tablename__ = "classification_jobs"
+    __table_args__ = (
+        UniqueConstraint("id", "scan_job_id", name="uq_classification_jobs_id_scan_job"),
+        CheckConstraint(
+            "status IN ('QUEUED','RUNNING','COMPLETED','PARTIAL','FAILED')", name="valid_status"
+        ),
+        CheckConstraint("progress BETWEEN 0 AND 100", name="valid_progress"),
+        CheckConstraint("total_results BETWEEN 1 AND 50", name="bounded_selection"),
+        CheckConstraint(
+            "completed_results >= 0 AND failed_results >= 0 "
+            "AND completed_results + failed_results <= total_results",
+            name="valid_counts",
+        ),
+        CheckConstraint("attempt_count BETWEEN 0 AND 3", name="bounded_attempts"),
+        Index("ix_classification_jobs_status_created_at", "status", "created_at"),
+    )
+    scan_job_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("scan_jobs.id"), index=True)
+    requested_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    status: Mapped[str] = mapped_column(String(16), server_default="QUEUED")
+    progress: Mapped[int] = mapped_column(Integer, server_default="0")
+    total_results: Mapped[int] = mapped_column(Integer)
+    completed_results: Mapped[int] = mapped_column(Integer, server_default="0")
+    failed_results: Mapped[int] = mapped_column(Integer, server_default="0")
+    model: Mapped[str] = mapped_column(String(120))
+    prompt_version: Mapped[str] = mapped_column(String(32))
+    error_code: Mapped[str | None] = mapped_column(String(64))
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    attempt_count: Mapped[int] = mapped_column(Integer, server_default="0")
+    dispatch_attempted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ClassificationJobItem(Base):
+    __tablename__ = "classification_job_items"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["job_id", "scan_job_id"], ["classification_jobs.id", "classification_jobs.scan_job_id"]
+        ),
+        ForeignKeyConstraint(
+            ["scan_result_id", "scan_job_id"], ["scan_results.id", "scan_results.scan_job_id"]
+        ),
+        CheckConstraint("status IN ('PENDING','COMPLETED','FAILED')", name="valid_status"),
+    )
+    job_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    scan_result_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, index=True
+    )
+    scan_job_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("scan_jobs.id"), index=True)
+    status: Mapped[str] = mapped_column(String(16), server_default="PENDING")
+    error_code: Mapped[str | None] = mapped_column(String(64))
+
+
 class PIIClassification(Entity, Base):
     __tablename__ = "pii_classifications"
     __table_args__ = (
+        ForeignKeyConstraint(
+            ["job_id", "scan_result_id"],
+            ["classification_job_items.job_id", "classification_job_items.scan_result_id"],
+        ),
+        UniqueConstraint("job_id", "scan_result_id", name="uq_pii_classifications_job_result"),
+        CheckConstraint("length(reason) BETWEEN 1 AND 500", name="bounded_reason"),
+        CheckConstraint("requires_approval", name="approval_required"),
         CheckConstraint("risk IN ('LOW','MEDIUM','HIGH','CRITICAL')", name="valid_risk"),
         CheckConstraint("confidence BETWEEN 0 AND 1", name="valid_confidence"),
         CheckConstraint(
@@ -166,12 +227,15 @@ class PIIClassification(Entity, Base):
     )
 
     scan_result_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("scan_results.id"), index=True)
+    job_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("classification_jobs.id"), index=True)
     category: Mapped[str] = mapped_column(String(64))
     risk: Mapped[str] = mapped_column(String(16))
     confidence: Mapped[float] = mapped_column(Float)
     recommendation: Mapped[str] = mapped_column(String(16))
     model: Mapped[str] = mapped_column(String(120))
     prompt_version: Mapped[str] = mapped_column(String(32))
+    reason: Mapped[str] = mapped_column(Text)
+    requires_approval: Mapped[bool] = mapped_column(Boolean, server_default=text("true"))
 
 
 class MaskingPolicy(Entity, Base):

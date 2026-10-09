@@ -58,8 +58,11 @@ def main() -> None:
                    TEST_TARGET_SCANNER_PASSWORD=config["SCANNER_PASSWORD"],
                    TEST_TARGET_DEPLOYER_PASSWORD=config["DEPLOYER_PASSWORD"],
                    TEST_TARGET_SUPERUSER_PASSWORD=config["TARGET_POSTGRES_PASSWORD"])
+        ollama_name = "privacyshield-check-ollama-" + uuid.uuid4().hex[:12]
+        env["OLLAMA_BASE_URL"] = f"http://{ollama_name}:11434"
+        env["TEST_OLLAMA_BASE_URL"] = env["OLLAMA_BASE_URL"]
         test_env_names = ["DATABASE_URL", "MIGRATION_DATABASE_URL", "TARGET_ALLOWED_HOSTS",
-                          "CELERY_QUEUE",
+                          "CELERY_QUEUE", "OLLAMA_BASE_URL", "TEST_OLLAMA_BASE_URL",
                           "TEST_TARGET_HOST", "TEST_TARGET_PORT", "TEST_TARGET_SCANNER_PASSWORD",
                           "TEST_TARGET_DEPLOYER_PASSWORD", "TEST_TARGET_SUPERUSER_PASSWORD"]
         isolated = compose + ["run", "--rm", "-T", "--no-deps"]
@@ -72,27 +75,32 @@ def main() -> None:
         # the application's worker (which uses the application's database).
         worker_name = "privacyshield-check-worker-" + uuid.uuid4().hex[:12]
         worker_args = compose + ["run", "--rm", "-T", "--no-deps", "-d", "--name", worker_name,
-                      "-e", "DATABASE_URL", "-e", "CELERY_QUEUE", "-e", "TARGET_ALLOWED_HOSTS", "worker",
+                      "-e", "DATABASE_URL", "-e", "CELERY_QUEUE", "-e", "TARGET_ALLOWED_HOSTS",
+                      "-e", "OLLAMA_BASE_URL", "worker",
                       "celery", "-A", "app.workers.celery_app:celery_app", "worker",
                       "--loglevel=WARNING", "--concurrency=1", "--beat",
                       "--schedule=/tmp/privacyshield-test-beat"]
-        run(worker_args, "Start isolated real Linux test worker", env=env, capture=True)
         try:
+            run(compose + ["run", "--rm", "-T", "--no-deps", "-d", "--name", ollama_name,
+                           "migrate", "python", "/app/tests/support/fake_ollama.py"],
+                "Start controlled HTTP Ollama double (real model checked separately)", capture=True)
+            run(worker_args, "Start isolated real Linux test worker", env=env, capture=True)
             ready = "from app.workers.celery_app import celery_app; r=celery_app.send_task('privacyshield.smoke',args=['isolated-check']); assert r.get(timeout=45)=={'status':'ok','message':'isolated-check'}; r.forget(); print('PASS: isolated worker ready')"
             run(isolated + ["python", "-c", ready], "Wait for isolated worker", env=env)
             run(isolated + ["python", "-m", "pytest", "-q", "-m", "integration"],
                 "Real PostgreSQL and Redis integration tests", env=env)
         finally:
-            print("Stop isolated test worker", flush=True)
+            print("Stop isolated test worker and controlled HTTP double", flush=True)
             # Auto-removed workers may already be absent after a failed startup.
             # Do not replace the original test failure with a cleanup traceback.
-            stopped = subprocess.run(["docker", "stop", "--time", "10", worker_name],
+            for container_name in (worker_name, ollama_name):
+                stopped = subprocess.run(["docker", "stop", "--time", "10", container_name],
                                      cwd=ROOT, capture_output=True, text=True)
-            if stopped.returncode:
-                remaining = subprocess.run(["docker", "inspect", worker_name],
+                if stopped.returncode:
+                    remaining = subprocess.run(["docker", "inspect", container_name],
                                            cwd=ROOT, capture_output=True, text=True)
-                if remaining.returncode == 0:
-                    raise RuntimeError("Could not stop the isolated test worker")
+                    if remaining.returncode == 0:
+                        raise RuntimeError("Could not stop an isolated test container")
         smoke = "from app.workers.celery_app import celery_app; r=celery_app.send_task('privacyshield.smoke',args=['foundation']); assert r.get(timeout=30)=={'status':'ok','message':'foundation'}; print('PASS: real Celery worker completed task using PostgreSQL'); r.forget()"
         run(compose + ["exec", "-T", "api", "python", "-c", smoke], "Real worker smoke test")
         run(compose + ["run", "--rm", "-T", "--no-deps", "-e", "SCANNER_PASSWORD", "-e", "READER_PASSWORD",

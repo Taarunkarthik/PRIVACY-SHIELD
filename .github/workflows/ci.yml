@@ -68,6 +68,8 @@ jobs:
       TEST_TARGET_HOST: 127.0.0.1
       TEST_TARGET_PORT: "5433"
       CELERY_QUEUE: privacyshield-ci
+      OLLAMA_BASE_URL: http://127.0.0.1:11435
+      TEST_OLLAMA_BASE_URL: http://127.0.0.1:11435
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-python@v7.0.0
@@ -185,8 +187,10 @@ jobs:
         run: |
           uv run alembic upgrade head
           uv run alembic check
-      - name: Start a separate Linux Celery worker
+      - name: Start controlled HTTP AI double and a separate Linux Celery worker
         run: |
+          uv run python tests/support/fake_ollama.py --host 127.0.0.1 --port 11435 > "$RUNNER_TEMP/privacyshield-ai-double.log" 2>&1 &
+          echo "AI_DOUBLE_PID=$!" >> "$GITHUB_ENV"
           uv run celery -A app.workers.celery_app:celery_app worker \
             --loglevel=WARNING --concurrency=1 --beat --schedule="$RUNNER_TEMP/privacyshield-beat" > "$RUNNER_TEMP/privacyshield-worker.log" 2>&1 &
           echo "WORKER_PID=$!" >> "$GITHUB_ENV"
@@ -197,6 +201,9 @@ jobs:
         run: |
           if [ -n "${WORKER_PID:-}" ]; then
             kill "$WORKER_PID" 2>/dev/null || true
+          fi
+          if [ -n "${AI_DOUBLE_PID:-}" ]; then
+            kill "$AI_DOUBLE_PID" 2>/dev/null || true
           fi
 
   frontend:

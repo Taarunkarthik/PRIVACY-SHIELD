@@ -50,27 +50,30 @@ def connection_fingerprint(connection: DatabaseConnection) -> str:
     return hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()
 
 
-def advisory_key(job_id: UUID) -> int:
+def advisory_key(job_id: UUID, namespace: str = "scan") -> int:
     return int.from_bytes(
-        hashlib.sha256(b"privacyshield:scan:" + job_id.bytes).digest()[:8], "big", signed=True
+        hashlib.sha256(b"privacyshield:" + namespace.encode() + b":" + job_id.bytes).digest()[:8],
+        "big",
+        signed=True,
     )
 
 
 @contextmanager
-def scan_lock(job_id: UUID):
+def scan_lock(job_id: UUID, namespace: str = "scan"):
     # Hold a dedicated session lock across target reads and short control-plane transactions.
     with get_engine().connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
         backend_pid = connection.scalar(text("SELECT pg_backend_pid()"))
         locked = connection.scalar(
-            text("SELECT pg_try_advisory_lock(:key)"), {"key": advisory_key(job_id)}
+            text("SELECT pg_try_advisory_lock(:key)"), {"key": advisory_key(job_id, namespace)}
         )
         try:
-            yield ScanLease(connection, advisory_key(job_id), backend_pid, bool(locked))
+            yield ScanLease(connection, advisory_key(job_id, namespace), backend_pid, bool(locked))
         finally:
             if locked:
                 try:
                     connection.execute(
-                        text("SELECT pg_advisory_unlock(:key)"), {"key": advisory_key(job_id)}
+                        text("SELECT pg_advisory_unlock(:key)"),
+                        {"key": advisory_key(job_id, namespace)},
                     )
                 except SQLAlchemyError:
                     connection.invalidate()

@@ -1,0 +1,53 @@
+import { readFile } from 'node:fs/promises';
+import { expect, test } from '@playwright/test';
+
+test('real model classifies a selected email finding as an advisory recommendation', async ({ page }, testInfo) => {
+  test.setTimeout(360000);
+  const passwordPath = process.env.PS_E2E_PASSWORD_FILE;
+  if (!passwordPath) throw new Error('Set PS_E2E_PASSWORD_FILE to an existing account password file before running test:e2e.');
+  const password = (await readFile(passwordPath, 'utf8')).replace(/[\r\n]+$/, '');
+  const pageErrors: string[] = [];
+  page.on('pageerror', (error) => pageErrors.push(error.name));
+  await page.goto('/classifications');
+  await page.getByLabel('Email address').fill(process.env.PS_E2E_ADMIN_EMAIL ?? 'admin@example.com');
+  await page.getByLabel('Password', { exact: true }).fill(password).catch(() => { throw new Error('The login password field could not be filled.'); });
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'AI Classification.' })).toBeVisible();
+  await page.getByRole('radio', { name: /Choose findings/ }).check();
+  const choices = page.getByRole('region', { name: 'Choose findings' });
+  const email = choices.getByRole('checkbox', { name: /^enterprise\.customers\.email / });
+  for (let resultPage = 1; !(await email.count()) && resultPage < 20; resultPage++) {
+    await expect(choices.locator('.selection-item').first()).toBeVisible();
+    if (await email.count()) break;
+    const next = choices.getByRole('button', { name: 'Next', exact: true });
+    if (!(await next.count()) || !(await next.isEnabled())) break;
+    await next.click();
+    await expect(choices.getByText(`Page ${resultPage + 1} of`, { exact: false })).toBeVisible();
+  }
+  await email.check();
+  const queued = page.waitForResponse((response) => response.url().endsWith('/classify') && response.request().method() === 'POST');
+  await page.getByRole('button', { name: 'Request classification', exact: true }).click();
+  const response = await queued;
+  expect(response.status()).toBe(202);
+  const created = await response.json() as { id: string };
+  await expect(page).toHaveURL(new RegExp(`job=${created.id}`));
+  const selected = page.getByRole('region', { name: 'Selected classification status' });
+  await expect(selected.getByText('Completed', { exact: true })).toBeVisible({ timeout: 300000 });
+  const recommendations = page.getByRole('region', { name: 'AI recommendations' });
+  const recommendation = recommendations.getByRole('article', { name: 'Recommendation enterprise.customers.email' });
+  await expect(recommendation).toBeVisible();
+  await expect(recommendation.getByText('Email address', { exact: true })).toBeVisible();
+  await expect(recommendation.getByText('Requires approval', { exact: true })).toBeVisible();
+  await expect(recommendation.locator('.recommendation-reason')).not.toBeEmpty();
+  await expect(recommendation).not.toContainText('customer1@example.com');
+  await expect(recommendations).toContainText('AI scores are heuristic signals');
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.screenshot({ path: testInfo.outputPath('classification-desktop.png'), fullPage: true });
+  await page.reload();
+  await expect(recommendation).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.evaluate(() => window.scrollTo(0, 0));
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('classification-mobile.png'), fullPage: true });
+  expect(pageErrors).toEqual([]);
+});

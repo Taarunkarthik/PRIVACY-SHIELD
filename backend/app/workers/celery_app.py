@@ -32,6 +32,10 @@ celery_app.conf.update(
     task_time_limit=300,
     beat_schedule={
         "dispatch-durable-scans": {"task": "privacyshield.dispatch_scans", "schedule": 15.0},
+        "dispatch-durable-classifications": {
+            "task": "privacyshield.dispatch_classifications",
+            "schedule": 15.0,
+        },
     },
 )
 
@@ -64,3 +68,24 @@ def dispatch_scans() -> None:
     from app.services.scanning.jobs import dispatch_scan_jobs
 
     dispatch_scan_jobs()
+
+
+@celery_app.task(
+    name="privacyshield.classify", ignore_result=True, soft_time_limit=900, time_limit=960
+)
+def classify(job_id: str) -> None:
+    from app.services.classification.jobs import run_classification
+
+    try:
+        run_classification(UUID(job_id))
+    except Exception:
+        logging.getLogger("privacyshield").error(
+            "Classification interrupted; reconciliation pending"
+        )
+
+
+@celery_app.task(name="privacyshield.dispatch_classifications", ignore_result=True)
+def dispatch_classifications() -> None:
+    from app.services.classification.jobs import dispatch_classification_jobs
+
+    dispatch_classification_jobs()

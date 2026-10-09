@@ -13,6 +13,11 @@ erDiagram
     schema_snapshots ||--o{ scan_jobs : anchors
     users ||--o{ scan_jobs : requests
     scan_jobs ||--o{ scan_results : produces
+    scan_jobs ||--o{ classification_jobs : evaluates
+    users ||--o{ classification_jobs : requests
+    classification_jobs ||--|{ classification_job_items : selects
+    scan_results ||--o{ classification_job_items : belongs
+    classification_job_items ||--o| pii_classifications : recommends
     scan_results ||--o{ pii_classifications : informs
     database_connections ||--o{ masking_policies : protects
     masking_policies ||--|{ policy_rules : contains
@@ -35,7 +40,9 @@ The foundation migration establishes these entities. Their presence does not mea
 | `schema_snapshots` | Connection FK, immutable catalog content, fingerprint, discovery timestamp |
 | `scan_jobs` | Connection/snapshot/requester FKs, bounded sample setting, state/progress |
 | `scan_results` | Job FK, column or JSON path, nonnegative sampled/detection counts, bounded confidence, sanitized evidence |
-| `pii_classifications` | Result FK, category/risk/action, confidence, model and prompt version |
+| `classification_jobs` | Completed scan/requester FKs, 1–50 selected results, constrained status/progress/counts, model/prompt version, bounded attempts |
+| `classification_job_items` | Composite job/result identity, same-scan foreign keys, per-result completion/failure state |
+| `pii_classifications` | Unique job/result pair, category/risk/action, confidence, bounded explanation, model/prompt version, required approval flag |
 | `masking_policies` | Connection/table/version identity, lifecycle state, source and compiled-plan fingerprints |
 | `policy_rules` | Policy FK, explicit per-column protection decision, optional classification FK |
 | `policy_approvals` | Policy and deciding-user FKs, decision, timestamp |
@@ -45,6 +52,8 @@ The foundation migration establishes these entities. Their presence does not mea
 UUID primary keys provide stable identities independent of display names. Timestamps use timezone-aware UTC storage. Foreign keys connect business entities; uniqueness prevents duplicate emails, names, tokens, policy versions, rule columns, and deployment idempotency keys where applicable. Database checks constrain roles/states, positive sample limits, nonnegative counts, and confidence/progress bounds.
 
 `schema_snapshots` additionally has a unique `(id, connection_id)` pair, referenced by the composite foreign key on `scan_jobs(snapshot_id, connection_id)`. PostgreSQL therefore rejects a scan that uses another connection's snapshot, even when both referenced records independently exist.
+
+Classification selection is normalized into `classification_job_items`; composite foreign keys require the selected result and classification job to belong to the same scan. An accepted recommendation must reference that exact selected pair. Each item commits independently so a model outage preserves earlier accepted recommendations and deterministic scan findings. The job reports `PARTIAL` rather than implying that incomplete work succeeded.
 
 Foreign-key indexes support joins. Job status/time indexes support polling and recovery. Approval and audit timestamp/actor indexes support review history without scanning the entire audit table. Migrations remain the versioned schema authority: never rely on `create_all()` for deployment upgrades.
 

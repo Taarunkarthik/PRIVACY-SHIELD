@@ -694,6 +694,7 @@ dependencies = [
     { name = "email-validator" },
     { name = "en-core-web-sm" },
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "presidio-analyzer" },
     { name = "psycopg", extra = ["binary"] },
     { name = "pydantic-settings" },
@@ -706,7 +707,6 @@ dependencies = [
 
 [package.optional-dependencies]
 dev = [
-    { name = "httpx" },
     { name = "pytest" },
     { name = "ruff" },
 ]
@@ -720,7 +720,7 @@ requires-dist = [
     { name = "email-validator", specifier = ">=2.2,<3" },
     { name = "en-core-web-sm", url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" },
     { name = "fastapi", specifier = ">=0.115,<1" },
-    { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.28,<1" },
+    { name = "httpx", specifier = ">=0.28,<1" },
     { name = "presidio-analyzer", specifier = "==2.2.364" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2,<4" },
     { name = "pydantic-settings", specifier = ">=2.7,<3" },

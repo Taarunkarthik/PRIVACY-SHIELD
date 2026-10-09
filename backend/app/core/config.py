@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     migration_database_url: SecretStr | None = None
     redis_url: SecretStr = SecretStr("redis://redis:6379/0")
     celery_queue: str = Field(default="privacyshield", pattern=r"^[a-zA-Z0-9_-]{1,80}$")
+    ollama_base_url: str = "http://ollama:11434"
+    ollama_model: str = Field(default="qwen2.5:1.5b", min_length=1, max_length=120)
     credential_encryption_key: SecretStr
     allowed_origins: list[str] = Field(default_factory=lambda: ["http://localhost:8080"])
     target_allowed_hosts: list[str] = Field(default_factory=lambda: ["target-db"])

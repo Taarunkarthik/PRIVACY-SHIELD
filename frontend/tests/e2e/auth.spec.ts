@@ -45,7 +45,7 @@ test('real browser signs in, renders live totals, navigates, and signs out', asy
   for (const label of ['Connections', 'Schema Explorer', 'Scan Results', 'AI Classification', 'Masking Policies', 'Approval Queue', 'Audit Logs', 'Settings']) {
     await nav.getByRole('link', { name: label, exact: true }).click();
     await expect(page.getByRole('heading', { name: new RegExp(`^${label}\\.?$`) })).toBeVisible();
-    if (!['Connections', 'Schema Explorer', 'Scan Results'].includes(label)) await expect(page.getByText('Coming in a later phase', { exact: true })).toBeVisible();
+    if (!['Connections', 'Schema Explorer', 'Scan Results', 'AI Classification'].includes(label)) await expect(page.getByText('Coming in a later phase', { exact: true })).toBeVisible();
   }
   await nav.getByRole('link', { name: 'Overview', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Workspace overview.' })).toBeVisible();

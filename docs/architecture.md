@@ -21,7 +21,7 @@ flowchart LR
     Views --> Target
 ```
 
-The full diagram is the delivery target. Phase 1 implements authentication, dashboard summary, the databases and their role boundaries, migrations, and real worker smoke execution. Presidio scanning, Ollama classification, and policy deployment are gated by later phases.
+The full diagram is the delivery target. Phases 1–3 deliver authentication, dashboard summary, role boundaries, migrations, discovery and real Presidio scanning. Phase 4 adds advisory Ollama classification. Policy deployment is gated by Phase 5.
 
 | Service | Responsibility | Default host exposure |
 | --- | --- | --- |
@@ -33,7 +33,7 @@ The full diagram is the delivery target. Phase 1 implements authentication, dash
 | `redis` | Job delivery and worker result transport | None |
 | `ollama` | Local model inference in optional `ai` profile | None |
 
-The one-shot `migrate` service applies control-plane migrations. PostgreSQL entrypoint scripts provision roles and synthetic target data only when their respective data volumes are first initialized. The optional `ollama-pull` service downloads the configured model. Successful initialization and service health checks gate dependent startup. PostgreSQL, rather than Redis, will be the source of truth for scan and deployment state.
+The one-shot `migrate` service applies control-plane migrations. PostgreSQL entrypoint scripts provision roles and synthetic target data only when their respective data volumes are first initialized. The optional `ollama-pull` service downloads the configured model. Successful initialization and service health checks gate dependent startup. PostgreSQL is the source of truth for scan and classification state; Redis carries delivery messages containing job identifiers only.
 
 ## Trust boundaries
 
@@ -61,7 +61,7 @@ All routes are prefixed `/api/v1`. Phase 1 includes:
 
 Passwords use Argon2 hashes. The browser session cookie is HttpOnly; unsafe authenticated requests include `X-CSRF-Token`. Session expiry and revocation are enforced on the server. Supported roles are `ADMIN`, `ANALYST`, and `AUDITOR`; privileged write workflows will be restricted to administrators.
 
-Later phases add connection/discovery, asynchronous scans, validated classification, versioned policy actions, deployments, and audit/settings APIs. Queued work returns `202` with a durable identifier. Conflicting state or stale versions return `409`. List APIs use pagination. Error responses must redact credentials and source values.
+The [discovery](discovery.md), [scanning](scanning.md), and [classification](classification.md) documents define those phases' API contracts. Later phases add versioned policy actions, deployments, and audit/settings APIs. Queued work returns `202` with a durable identifier. Conflicting state or stale versions return `409`. List APIs use pagination. Error responses redact credentials and source values.
 
 ## Policy deployment design
 

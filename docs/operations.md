@@ -112,7 +112,7 @@ uv run celery -A app.workers.celery_app:celery_app worker --loglevel=INFO
 uv run pytest -m integration
 ```
 
-Run the worker in a separate Linux process, then run integration tests in another process. The `privacyshield.smoke` task checks the database and returns an `ok` result through the real broker. Never run integration fixtures against data you need to preserve.
+Run the worker in a separate Linux process, then run integration tests in another process. Phase 4 orchestration fixtures also require a separate controlled HTTP service (`python tests/support/fake_ollama.py --host 127.0.0.1 --port 11435`). Set `OLLAMA_BASE_URL` and `TEST_OLLAMA_BASE_URL` to `http://127.0.0.1:11435` in the disposable test environment before starting its worker and tests. Never point the application's normal worker at this test double. The Docker `scripts/check.py --integration` command manages isolation and cleanup automatically. The `privacyshield.smoke` task checks the database and returns an `ok` result through the real broker. Never run integration fixtures against data you need to preserve.
 
 Frontend development commands (from `frontend/`):
 
@@ -138,7 +138,7 @@ The committed lockfiles define reproducible dependencies. Use Node 24 and Python
 | Migration lacks permissions | Use `ps_migrator` for migrations and `ps_app` only at runtime; never grant runtime superuser to bypass a failure. |
 | Worker test times out | Confirm worker is a separate Linux process, broker URLs match, migrations completed, and the task is registered. |
 | Frontend build fails after dependency changes | Reconcile `package.json` and its lockfile; use `npm ci` to reproduce the failure. |
-| Ollama memory/download issues | AI is optional during foundation. Later use `qwen2.5:1.5b`, limit concurrency, and retain models in D:-backed Docker storage. |
+| Ollama memory/download issues | Enable the `ai` profile and finish the one-shot model pull. The service uses `qwen2.5:1.5b`, two CPUs and 3 GiB memory with one inference at a time; models persist in D:-backed Docker storage. See [AI checks](classification.md). |
 | GitHub push authentication fails | Run `gh auth login --web` securely; never paste a personal access token into chat. |
 | Remote branch changed | Fetch and inspect the divergence, preserve both histories, resolve normally, and push without force. |
 

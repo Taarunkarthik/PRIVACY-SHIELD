@@ -15,6 +15,7 @@ dependencies = [
   "cryptography>=44,<47",
   "celery[redis]>=5.4,<6",
   "redis>=5.2,<7",
+  "httpx>=0.28,<1",
   "presidio-analyzer==2.2.364",
   "spacy==3.8.16",
   "tldextract==5.4.0",
@@ -22,7 +23,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.3,<10", "httpx>=0.28,<1", "ruff>=0.9,<1"]
+dev = ["pytest>=8.3,<10", "ruff>=0.9,<1"]
 
 [build-system]
 requires = ["hatchling"]
