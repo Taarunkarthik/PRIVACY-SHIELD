@@ -1,6 +1,6 @@
 # Delivery roadmap
 
-Each phase is gated on relevant tests, a reviewed commit, a successful push to `dev/privacyshield`, and remote-SHA confirmation. Phase 1 is **complete**, including real services, browser review, remote commit verification, and passing GitHub Actions. Phase 2 is in progress; Phases 3–7 have not started. See [the verification record](verification.md) for evidence and limitations.
+Each phase is gated on relevant tests, a reviewed commit, a successful push to `dev/privacyshield`, and remote-SHA confirmation. Phases 1 and 2 are **complete**, including real services, browser review, remote commit verification, and passing GitHub Actions. Phase 3 is in progress; Phases 4–7 have not started. See the phase verification records for evidence and limitations.
 
 ## Three-day submission target
 
@@ -17,11 +17,11 @@ The target submission date is **12 October 2026**. Deliverables are the reposito
 | Phase | Deliverables | Acceptance gate | Status |
 | --- | --- | --- | --- |
 | 1 — Foundation | Monorepo, Compose, normalized models/migrations, authentication/RBAC, dashboard shell, synthetic target, CI | Clean startup; migration; login/logout/CSRF; protected endpoints; frontend tests/build; separate real Celery worker smoke | Complete — `4f1efd2`, CI passed |
-| 2 — Discovery | Encrypted connection management; least-privilege provisioning; catalog discovery; Schema Explorer | Discover tables, PK/FK and composite relationships; reject scanner writes; redact credentials | Complete local gate passed; commit/push and CI pending |
-| 3 — Scanning | Presidio and Indian candidate recognizers; bounded JSONB/text sampling; async jobs; results | Real async scan detects synthetic scalar/JSONB/text fixtures; enforce sampling/timeouts; no retained raw samples | Not started |
+| 2 — Discovery | Encrypted connection management; least-privilege provisioning; catalog discovery; Schema Explorer | Discover tables, PK/FK and composite relationships; reject scanner writes; redact credentials | Complete — `c0c0100`, CI passed |
+| 3 — Scanning | Presidio and Indian candidate recognizers; bounded JSONB/text sampling; async jobs; results | Real async scan detects synthetic scalar/JSONB/text fixtures; enforce sampling/timeouts; no retained raw samples | Local gate passed; push/CI pending |
 | 4 — Classification | Ollama adapter; structured response validation; classifications UI/evaluation | Real `qwen2.5:1.5b` smoke; reject malformed/unknown fields and injection attempts; manual review during outages | Not started |
 | 5 — Masking and Approval | Compiler, previews, immutable policy versions, approval, deployment/reconciliation | Reader sees approved views only; unchanged source data; idempotent deployment; schema drift blocks deployment | Not started |
-| 6 — Security and Audit | Permissions matrix; audit timeline; redaction; concurrency/recovery | Audit immutability; stale/concurrent decisions; inherited privilege checks; interruption and uncertain-outcome recovery | Not started |
+| 6 — Security and Audit | Permissions matrix; audit timeline; operator settings/custom patterns; redaction; concurrency/recovery | Audit immutability; bounded custom-pattern configuration; stale/concurrent decisions; inherited privilege checks; interruption and uncertain-outcome recovery | Not started |
 | 7 — Readiness | Browser workflow tests; measured benchmarks; observability; deployment/demo docs | Clean-install full workflow; published measured limitations and repeatable commands | Not started |
 
 ## Phase 1 acceptance evidence
@@ -35,7 +35,7 @@ The target submission date is **12 October 2026**. Deliverables are the reposito
 
 If a required service is unavailable, record that gate as blocked. Do not substitute mocked tests or proceed into the next phase as though acceptance succeeded.
 
-The [Phase 2 verification record](verification-phase2.md) records 29 backend unit, 29 real integration, 18 frontend, and 2 real browser tests passed, plus final Docker builds, HTTP checks, the registration demo, and API-replacement proxy recovery. Phase 2 remains open until its commit/push and CI gates pass.
+The [Phase 2 verification record](verification-phase2.md) records 29 backend unit, 29 real integration, 18 frontend, and 2 real browser tests passed, plus final Docker builds, HTTP checks, the registration demo, and API-replacement proxy recovery. Commit `c0c0100` was pushed and its remote SHA verified; GitHub Actions run `37968356823` passed.
 
 ## Per-phase delivery report
 

@@ -15,6 +15,6 @@ export function Upcoming({ page }: { page: typeof upcomingPages[number] }) {
       <Link className="button secondary" to="/"><ArrowLeft size={16} /> Back to overview</Link>
     </section>
     {page.path === '/settings' && <section className="panel account-summary"><div><p className="eyebrow">SIGNED-IN ACCOUNT</p><h2>{user?.email}</h2></div><span className="pill">{user?.role}</span></section>}
-    <div className="footnote"><ArrowUpRight size={15} /><p>Connection management and schema discovery are available. This page is planned for a later phase.</p></div>
+    <div className="footnote"><ArrowUpRight size={15} /><p>Connections, schema discovery, and sampled scans are available. This page is planned for a later phase.</p></div>
   </div>;
 }

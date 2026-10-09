@@ -6,9 +6,9 @@ PrivacyShield is a PostgreSQL privacy platform being built in seven tested phase
 
 ## Current delivery
 
-Phase 1 provides the control-plane schema, authenticated API, React dashboard shell, Docker topology, synthetic target database, worker foundation, and initial tests. Phase 2 adds connection management and schema discovery; its final delivery checks are still pending. Scanning, AI classification, and policy enforcement remain later phases. Pages for unavailable capabilities say so; demonstration counts must never be presented as scanned findings.
+Phases 1 and 2 provide the control-plane schema, authenticated API, React dashboard, Docker topology, synthetic target database, worker foundation, encrypted connection management, and schema discovery. Phase 3 scanning has passed local acceptance and awaits GitHub delivery verification. AI classification and policy enforcement remain later phases. Pages for unavailable capabilities say so; demonstration counts must never be presented as scanned findings.
 
-Phase 1 is delivered: local checks, the authenticated browser workflow, remote commit confirmation, and GitHub Actions passed. The verified commit is [`4f1efd2`](https://github.com/Taarunkarthik/PRIVACY-SHIELD/commit/4f1efd225888f90178540db75d4fbb2439fea90a). Phase 2 connection management and schema discovery are in progress; later phases remain pending. See [verification evidence](docs/verification.md) and [the delivery roadmap](docs/roadmap.md) for current status.
+Phases 1 and 2 are delivered: local checks, real browser workflows, remote commit confirmation, and GitHub Actions passed. The latest verified commit is [`c0c0100`](https://github.com/Taarunkarthik/PRIVACY-SHIELD/commit/c0c0100b2a8badf56526321bb65a6707cb48da4b). See [Phase 2 verification evidence](docs/verification-phase2.md) and [the delivery roadmap](docs/roadmap.md) for current status.
 
 The submission target is **12 October 2026**, with working code and a reproducible demonstration. The seven phase gates remain in place within the three-day work window; the schedule is a target, not a guarantee of completion.
 
@@ -21,7 +21,7 @@ git clone https://github.com/Taarunkarthik/PRIVACY-SHIELD.git
 Set-Location PRIVACY-SHIELD
 git switch dev/privacyshield
 python scripts/setup.py
-docker compose up --build -d
+docker compose up --build -d --wait
 docker compose ps
 ```
 
@@ -47,7 +47,7 @@ With the Compose services already running, run the repository's Docker acceptanc
 python scripts/check.py --integration
 ```
 
-This validates Compose, lints/tests the backend, migrates a separate `privacyshield_test` database, exercises real PostgreSQL/Redis/Celery, and checks actual scanner/reader target permissions. It preserves the application database and retains test fixtures in the isolated test database. It does not start or build the application.
+This validates Compose, lints/tests the backend, migrates a separate `privacyshield_test` database, exercises real PostgreSQL/Redis/Celery, and checks actual scanner/reader target permissions. It starts a temporary Linux worker on an isolated queue for test jobs and removes that worker afterward. It preserves the application database and retains test fixtures in the isolated test database. It does not start or build the application.
 
 Add `--frontend` when Node 24/npm are installed on the host to include frontend installation, type checking, tests, and a production build:
 
@@ -69,7 +69,7 @@ npm test
 npm run build
 ```
 
-Integration tests require migrated PostgreSQL, Redis, and a **separate Linux Celery worker**. A mocked broker or eager Celery execution does not satisfy that gate. The Phase 2 [GitHub Actions workflow](.github/workflows/ci.yml) additionally provisions a separate synthetic target PostgreSQL service using the repository's initialization scripts. Its first run remains pending until Phase 2 is pushed; the successful Phase 1 run covered the control database, Redis, worker, and frontend. A successful local build alone does not establish integration success.
+Integration tests require migrated PostgreSQL, Redis, and a **separate Linux Celery worker**. A mocked broker or eager Celery execution does not satisfy that gate. The [GitHub Actions workflow](.github/workflows/ci.yml) also provisions a separate synthetic target PostgreSQL service using the repository's initialization scripts. [Phase 2 CI](https://github.com/Taarunkarthik/PRIVACY-SHIELD/actions/runs/37968356823) passed against these real services. A successful local build alone does not establish integration success.
 
 ## Architecture and documentation
 
@@ -87,9 +87,11 @@ The backend is a FastAPI modular monolith shared by API and Celery processes. A 
 - [Database design, ER diagram, and transaction boundaries](docs/database-design.md)
 - [Three-day delivery target and seven phase gates](docs/roadmap.md)
 - [Connection and discovery contract](docs/discovery.md)
+- [Bounded PII scanning and demo](docs/scanning.md)
 - [Setup, testing, demo, and troubleshooting](docs/operations.md)
 - [Phase 1 verification evidence and limitations](docs/verification.md)
-- [Phase 2 verification evidence and remaining gates](docs/verification-phase2.md)
+- [Phase 2 verification evidence](docs/verification-phase2.md)
+- [Phase 3 verification evidence](docs/verification-phase3.md)
 
 ## Security and delivery rules
 

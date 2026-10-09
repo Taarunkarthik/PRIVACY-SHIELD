@@ -67,6 +67,7 @@ jobs:
       TARGET_ALLOWED_HOSTS: '["127.0.0.1"]'
       TEST_TARGET_HOST: 127.0.0.1
       TEST_TARGET_PORT: "5433"
+      CELERY_QUEUE: privacyshield-ci
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-python@v7.0.0
@@ -187,7 +188,7 @@ jobs:
       - name: Start a separate Linux Celery worker
         run: |
           uv run celery -A app.workers.celery_app:celery_app worker \
-            --loglevel=WARNING --concurrency=1 > "$RUNNER_TEMP/privacyshield-worker.log" 2>&1 &
+            --loglevel=WARNING --concurrency=1 --beat --schedule="$RUNNER_TEMP/privacyshield-beat" > "$RUNNER_TEMP/privacyshield-worker.log" 2>&1 &
           echo "WORKER_PID=$!" >> "$GITHUB_ENV"
       - name: Real control/target PostgreSQL, discovery, session, and worker tests
         run: uv run pytest -m integration

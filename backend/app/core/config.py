@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     database_url: SecretStr
     migration_database_url: SecretStr | None = None
     redis_url: SecretStr = SecretStr("redis://redis:6379/0")
+    celery_queue: str = Field(default="privacyshield", pattern=r"^[a-zA-Z0-9_-]{1,80}$")
     credential_encryption_key: SecretStr
     allowed_origins: list[str] = Field(default_factory=lambda: ["http://localhost:8080"])
     target_allowed_hosts: list[str] = Field(default_factory=lambda: ["target-db"])

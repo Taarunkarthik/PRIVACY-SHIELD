@@ -9,7 +9,7 @@ from app.api.dependencies import current_user, require_roles
 from app.core.audit import record_event
 from app.core.database import get_db
 from app.core.security import encrypt_credential
-from app.models import DatabaseConnection, SchemaSnapshot, User
+from app.models import DatabaseConnection, ScanJob, SchemaSnapshot, User
 from app.schemas.connections import (
     ConnectionCreate,
     ConnectionPage,
@@ -139,6 +139,23 @@ def update_connection(
 ) -> DatabaseConnection:
     record = find_connection(db, connection_id, lock=True)
     fields = payload.model_fields_set
+    source_fields = {
+        "host",
+        "port",
+        "database_name",
+        "ssl_mode",
+        "scanner_username",
+        "scanner_password",
+    }
+    if fields & source_fields and db.scalar(
+        select(ScanJob.id)
+        .where(
+            ScanJob.connection_id == connection_id,
+            ScanJob.status.in_(["QUEUED", "RUNNING"]),
+        )
+        .limit(1)
+    ):
+        raise HTTPException(409, "Wait for active scans before changing source connection settings")
     if "host" in fields:
         validate_host(payload.host)
     if "scanner_username" in fields and payload.scanner_username != record.scanner_username:

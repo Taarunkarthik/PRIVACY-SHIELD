@@ -13,7 +13,6 @@ export const navigation = [
 ];
 
 export const upcomingPages = [
-  { path: '/scans', title: 'Scan Results', icon: ScanLine, eyebrow: 'FIND SENSITIVE DATA', heading: 'Clarity starts with discovery', description: 'Review sampled findings for personal data, including common identifiers and Indian PAN and Aadhaar candidates.', next: 'Scanning and findings will be available in the scanning phase.' },
   { path: '/classifications', title: 'AI Classification', icon: Bot, eyebrow: 'CONTEXT FOR EVERY FINDING', heading: 'Turn findings into decisions', description: 'Review AI-assisted classifications and protection recommendations, with the final decision always in your hands.', next: 'AI recommendations follow the scanning phase.' },
   { path: '/policies', title: 'Masking Policies', icon: ShieldCheck, eyebrow: 'PROTECTION WITH PURPOSE', heading: 'Define the right protection', description: 'Create and preview masking policies that protect sensitive data while preserving your source records.', next: 'Policy creation and previews will be available in the masking phase.' },
   { path: '/approvals', title: 'Approval Queue', icon: CircleCheck, eyebrow: 'HUMAN REVIEW, ALWAYS', heading: 'Every protection gets a review', description: 'Approve a specific policy version before separately choosing to deploy it.', next: 'Policy approvals will become available with masking policies.' },

@@ -3,12 +3,14 @@ FROM python:3.12-slim-bookworm@sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3
 
 COPY --from=uv /uv /uvx /bin/
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy \
-    RUFF_CACHE_DIR=/tmp/ruff-cache PYTEST_ADDOPTS="-o cache_dir=/tmp/pytest-cache"
+    RUFF_CACHE_DIR=/tmp/ruff-cache PYTEST_ADDOPTS="-o cache_dir=/tmp/pytest-cache" \
+    OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 UV_CONCURRENT_DOWNLOADS=4 UV_HTTP_TIMEOUT=300
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
-RUN uv sync --locked --extra dev --no-install-project
+RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked uv sync --locked --extra dev --no-install-project \
+    && .venv/bin/python -c "import en_core_web_sm; en_core_web_sm.load(disable=['parser'])"
 COPY . .
-RUN uv sync --locked --extra dev && useradd --system --uid 10001 --create-home privacyshield
+RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked uv sync --locked --extra dev && useradd --system --uid 10001 --create-home privacyshield
 USER 10001
 ENV PATH="/app/.venv/bin:$PATH"
 EXPOSE 8000

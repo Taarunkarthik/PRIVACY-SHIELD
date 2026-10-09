@@ -80,127 +80,128 @@ def catalog_fingerprint(catalog: dict) -> str:
 
 def discover_catalog(record: DatabaseConnection, requested_schemas: list[str] | None) -> dict:
     with target_session(record) as connection:
-        role = connection.execute("""
-            SELECT bool_or(rolsuper OR rolbypassrls OR rolcreaterole
-                           OR rolcreatedb OR rolreplication)
-                   AS unsafe
-            FROM pg_catalog.pg_roles
+        return discover_catalog_in_session(connection, requested_schemas)
+
+
+def discover_catalog_in_session(
+    connection: psycopg.Connection,
+    requested_schemas: list[str] | None,
+) -> dict:
+    role = connection.execute("""
+        SELECT bool_or(rolsuper OR rolbypassrls OR rolcreaterole
+                       OR rolcreatedb OR rolreplication)
+               AS unsafe
+        FROM pg_catalog.pg_roles
+        WHERE rolname = current_user OR pg_catalog.pg_has_role(current_user, oid, 'MEMBER')
+    """).fetchone()
+    if role["unsafe"]:
+        raise DiscoveryError(422, "Scanner must use a role without administrative privileges")
+
+    schemas = [
+        row["nspname"]
+        for row in connection.execute(
+            """
+        SELECT nspname FROM pg_catalog.pg_namespace
+        WHERE nspname = ANY(%s) AND pg_catalog.has_schema_privilege(oid, 'USAGE')
+        ORDER BY nspname
+    """,
+            (requested_schemas if requested_schemas is not None else DEFAULT_SCHEMAS,),
+        )
+    ]
+    if requested_schemas is not None and set(schemas) != set(requested_schemas):
+        raise DiscoveryError(422, "Requested source schemas are unavailable to the scanner")
+    if not schemas:
+        raise DiscoveryError(422, "No allowed source schemas are accessible to the scanner")
+
+    tables = connection.execute(
+        """
+        WITH accessible_roles AS (
+            SELECT oid FROM pg_catalog.pg_roles
             WHERE rolname = current_user OR pg_catalog.pg_has_role(current_user, oid, 'MEMBER')
-        """).fetchone()
-        if role["unsafe"]:
-            raise DiscoveryError(422, "Scanner must use a role without administrative privileges")
-
-        schemas = [
-            row["nspname"]
-            for row in connection.execute(
-                """
-            SELECT nspname FROM pg_catalog.pg_namespace
-            WHERE nspname = ANY(%s) AND pg_catalog.has_schema_privilege(oid, 'USAGE')
-            ORDER BY nspname
-        """,
-                (requested_schemas if requested_schemas is not None else DEFAULT_SCHEMAS,),
-            )
-        ]
-        if requested_schemas is not None and set(schemas) != set(requested_schemas):
-            raise DiscoveryError(422, "Requested source schemas are unavailable to the scanner")
-        if not schemas:
-            raise DiscoveryError(422, "No allowed source schemas are accessible to the scanner")
-
-        tables = connection.execute(
-            """
-            WITH accessible_roles AS (
-                SELECT oid FROM pg_catalog.pg_roles
-                WHERE rolname = current_user OR pg_catalog.pg_has_role(current_user, oid, 'MEMBER')
-            )
-            SELECT c.oid, n.nspname AS schema, c.relname AS name,
-                   c.reltuples::bigint AS row_estimate,
-                   c.relrowsecurity AS rls_enabled,
-                   pg_catalog.has_table_privilege(c.oid, 'SELECT') AS can_select,
-                   EXISTS (
-                       SELECT 1 FROM accessible_roles r
-                       WHERE c.relowner = r.oid
-                          OR pg_catalog.has_table_privilege(r.oid, c.oid,
-                              'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
-                          OR pg_catalog.has_any_column_privilege(r.oid, c.oid,
-                              'INSERT,UPDATE,REFERENCES')
-                   ) AS unsafe
-            FROM pg_catalog.pg_class c
-            JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-            WHERE n.nspname = ANY(%s) AND c.relkind IN ('r','p')
-            ORDER BY n.nspname, c.relname LIMIT %s
-        """,
-            (schemas, MAX_TABLES + 1),
-        ).fetchall()
-        if len(tables) > MAX_TABLES:
-            raise DiscoveryError(422, "Source scope exceeds the table limit; select fewer schemas")
-        if any(table["unsafe"] for table in tables):
-            raise DiscoveryError(
-                422, "Scanner must not own or modify tables in the selected schemas"
-            )
-        if any(not table["can_select"] for table in tables):
-            raise DiscoveryError(
-                422, "Scanner requires SELECT on every table in the selected schemas"
-            )
-        by_oid = {}
-        for table in tables:
-            table.pop("can_select")
-            table.pop("unsafe")
-            table.update(columns=[], primary_key=[], foreign_keys=[])
-            by_oid[table["oid"]] = table
-        if not by_oid:
-            return {"schemas": schemas, "tables": []}
-        oids = list(by_oid)
-        columns = connection.execute(
-            """
-            SELECT a.attrelid AS table_oid, a.attname AS name,
-                   pg_catalog.format_type(a.atttypid, a.atttypmod) AS data_type,
-                   t.typname AS udt_name, NOT (a.attnotnull OR t.typnotnull) AS nullable,
-                   a.attnum AS ordinal, (t.typname = 'jsonb') AS is_jsonb
-            FROM pg_catalog.pg_attribute a
-            JOIN pg_catalog.pg_type t ON t.oid = a.atttypid
-            WHERE a.attrelid = ANY(%s::oid[]) AND a.attnum > 0 AND NOT a.attisdropped
-            ORDER BY a.attrelid, a.attnum LIMIT %s
-        """,
-            (oids, MAX_COLUMNS + 1),
-        ).fetchall()
-        if len(columns) > MAX_COLUMNS:
-            raise DiscoveryError(422, "Source scope exceeds the column limit; select fewer schemas")
-        for column in columns:
-            table_oid = column.pop("table_oid")
-            column["is_primary_key"] = False
-            by_oid[table_oid]["columns"].append(column)
-        constraints = connection.execute(
-            """
-            SELECT con.conrelid AS table_oid, con.contype, con.conname AS name,
-                   ARRAY(SELECT a.attname FROM unnest(con.conkey) WITH ORDINALITY k(num, ord)
-                         JOIN pg_catalog.pg_attribute a
-                           ON a.attrelid=con.conrelid AND a.attnum=k.num
-                         ORDER BY k.ord) AS columns,
-                   rn.nspname AS referenced_schema, rc.relname AS referenced_table,
-                   ARRAY(SELECT a.attname FROM unnest(con.confkey) WITH ORDINALITY k(num, ord)
-                         JOIN pg_catalog.pg_attribute a
-                           ON a.attrelid=con.confrelid AND a.attnum=k.num
-                         ORDER BY k.ord) AS referenced_columns
-            FROM pg_catalog.pg_constraint con
-            LEFT JOIN pg_catalog.pg_class rc ON rc.oid = con.confrelid
-            LEFT JOIN pg_catalog.pg_namespace rn ON rn.oid = rc.relnamespace
-            WHERE con.conrelid = ANY(%s::oid[]) AND con.contype IN ('p','f')
-            ORDER BY con.conrelid, con.conname LIMIT %s
-        """,
-            (oids, MAX_CONSTRAINTS + 1),
-        ).fetchall()
-        if len(constraints) > MAX_CONSTRAINTS:
-            raise DiscoveryError(
-                422, "Source scope exceeds the constraint limit; select fewer schemas"
-            )
-        for constraint in constraints:
-            table = by_oid[constraint.pop("table_oid")]
-            if constraint.pop("contype") == "p":
-                table["primary_key"] = constraint["columns"]
-                for column in table["columns"]:
-                    column["is_primary_key"] = column["name"] in table["primary_key"]
-            else:
-                table["foreign_keys"].append(constraint)
-        catalog = {"schemas": schemas, "tables": tables}
-        Catalog.model_validate(catalog)
-        return catalog
+        )
+        SELECT c.oid, n.nspname AS schema, c.relname AS name,
+               c.reltuples::bigint AS row_estimate,
+               c.relrowsecurity AS rls_enabled,
+               pg_catalog.has_table_privilege(c.oid, 'SELECT') AS can_select,
+               EXISTS (
+                   SELECT 1 FROM accessible_roles r
+                   WHERE c.relowner = r.oid
+                      OR pg_catalog.has_table_privilege(r.oid, c.oid,
+                          'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+                      OR pg_catalog.has_any_column_privilege(r.oid, c.oid,
+                          'INSERT,UPDATE,REFERENCES')
+               ) AS unsafe
+        FROM pg_catalog.pg_class c
+        JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = ANY(%s) AND c.relkind IN ('r','p')
+        ORDER BY n.nspname, c.relname LIMIT %s
+    """,
+        (schemas, MAX_TABLES + 1),
+    ).fetchall()
+    if len(tables) > MAX_TABLES:
+        raise DiscoveryError(422, "Source scope exceeds the table limit; select fewer schemas")
+    if any(table["unsafe"] for table in tables):
+        raise DiscoveryError(422, "Scanner must not own or modify tables in the selected schemas")
+    if any(not table["can_select"] for table in tables):
+        raise DiscoveryError(422, "Scanner requires SELECT on every table in the selected schemas")
+    by_oid = {}
+    for table in tables:
+        table.pop("can_select")
+        table.pop("unsafe")
+        table.update(columns=[], primary_key=[], foreign_keys=[])
+        by_oid[table["oid"]] = table
+    if not by_oid:
+        return {"schemas": schemas, "tables": []}
+    oids = list(by_oid)
+    columns = connection.execute(
+        """
+        SELECT a.attrelid AS table_oid, a.attname AS name,
+               pg_catalog.format_type(a.atttypid, a.atttypmod) AS data_type,
+               t.typname AS udt_name, NOT (a.attnotnull OR t.typnotnull) AS nullable,
+               a.attnum AS ordinal, (t.typname = 'jsonb') AS is_jsonb
+        FROM pg_catalog.pg_attribute a
+        JOIN pg_catalog.pg_type t ON t.oid = a.atttypid
+        WHERE a.attrelid = ANY(%s::oid[]) AND a.attnum > 0 AND NOT a.attisdropped
+        ORDER BY a.attrelid, a.attnum LIMIT %s
+    """,
+        (oids, MAX_COLUMNS + 1),
+    ).fetchall()
+    if len(columns) > MAX_COLUMNS:
+        raise DiscoveryError(422, "Source scope exceeds the column limit; select fewer schemas")
+    for column in columns:
+        table_oid = column.pop("table_oid")
+        column["is_primary_key"] = False
+        by_oid[table_oid]["columns"].append(column)
+    constraints = connection.execute(
+        """
+        SELECT con.conrelid AS table_oid, con.contype, con.conname AS name,
+               ARRAY(SELECT a.attname FROM unnest(con.conkey) WITH ORDINALITY k(num, ord)
+                     JOIN pg_catalog.pg_attribute a
+                       ON a.attrelid=con.conrelid AND a.attnum=k.num
+                     ORDER BY k.ord) AS columns,
+               rn.nspname AS referenced_schema, rc.relname AS referenced_table,
+               ARRAY(SELECT a.attname FROM unnest(con.confkey) WITH ORDINALITY k(num, ord)
+                     JOIN pg_catalog.pg_attribute a
+                       ON a.attrelid=con.confrelid AND a.attnum=k.num
+                     ORDER BY k.ord) AS referenced_columns
+        FROM pg_catalog.pg_constraint con
+        LEFT JOIN pg_catalog.pg_class rc ON rc.oid = con.confrelid
+        LEFT JOIN pg_catalog.pg_namespace rn ON rn.oid = rc.relnamespace
+        WHERE con.conrelid = ANY(%s::oid[]) AND con.contype IN ('p','f')
+        ORDER BY con.conrelid, con.conname LIMIT %s
+    """,
+        (oids, MAX_CONSTRAINTS + 1),
+    ).fetchall()
+    if len(constraints) > MAX_CONSTRAINTS:
+        raise DiscoveryError(422, "Source scope exceeds the constraint limit; select fewer schemas")
+    for constraint in constraints:
+        table = by_oid[constraint.pop("table_oid")]
+        if constraint.pop("contype") == "p":
+            table["primary_key"] = constraint["columns"]
+            for column in table["columns"]:
+                column["is_primary_key"] = column["name"] in table["primary_key"]
+        else:
+            table["foreign_keys"].append(constraint)
+    catalog = {"schemas": schemas, "tables": tables}
+    Catalog.model_validate(catalog)
+    return catalog

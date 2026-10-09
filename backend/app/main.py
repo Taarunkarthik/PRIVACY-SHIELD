@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.api import auth, connections, dashboard, health
+from app.api import auth, connections, dashboard, health, scans
 from app.core.config import get_settings
 
 logger = logging.getLogger("privacyshield")
@@ -36,7 +36,7 @@ def create_app() -> FastAPI:
         allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
         allow_headers=["Content-Type", "X-CSRF-Token"],
     )
-    for router in (health.router, auth.router, dashboard.router, connections.router):
+    for router in (health.router, auth.router, dashboard.router, connections.router, scans.router):
         app.include_router(router, prefix="/api/v1")
 
     @app.middleware("http")

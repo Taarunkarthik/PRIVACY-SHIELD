@@ -109,6 +109,7 @@ class ScanJob(Entity, Base):
         ),
         CheckConstraint("sample_limit BETWEEN 1 AND 10000", name="bounded_sample"),
         CheckConstraint("progress BETWEEN 0 AND 100", name="valid_progress"),
+        CheckConstraint("attempt_count BETWEEN 0 AND 3", name="bounded_attempts"),
         Index("ix_scan_jobs_status_created_at", "status", "created_at"),
     )
 
@@ -123,6 +124,9 @@ class ScanJob(Entity, Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     error_code: Mapped[str | None] = mapped_column(String(64))
+    attempt_count: Mapped[int] = mapped_column(Integer, server_default="0")
+    dispatch_attempted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    connection_fingerprint: Mapped[str] = mapped_column(String(64), server_default="")
 
 
 class ScanResult(Entity, Base):

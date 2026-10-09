@@ -1,6 +1,6 @@
 # Phase 2 verification record
 
-Phase 2 connection management and schema discovery passed the complete local gate: backend, frontend, final Docker builds, HTTP checks, the registration demo, both browser workflows, and API replacement through the unchanged frontend. Commit/push and GitHub Actions verification remain pending. Do not interpret this record as a remotely delivered Phase 2 release until those results are recorded.
+Phase 2 is complete. Connection management and schema discovery passed the local gate: backend, frontend, final Docker builds, HTTP checks, the registration demo, both browser workflows, and API replacement through the unchanged frontend. Commit/push and GitHub Actions were independently verified.
 
 ## Confirmed results
 
@@ -26,12 +26,12 @@ The full backend gate was `python scripts/check.py --integration`. Discovery cas
 
 The isolated target fixture uses unique test-owned schemas/roles and removes those exact objects afterward. Existing enterprise fixture data is not modified by discovery. Source queries read PostgreSQL catalogs, not customer rows.
 
-## Final checks still pending
+## GitHub delivery
 
 | Check | Status |
 | --- | --- |
-| Phase 2 commit and remote SHA | Pending |
-| Phase 2 GitHub Actions | Pending; Phase 1's successful run is not evidence for the new target-service workflow |
+| Phase 2 commit and remote SHA | [`c0c0100b2a8badf56526321bb65a6707cb48da4b`](https://github.com/Taarunkarthik/PRIVACY-SHIELD/commit/c0c0100b2a8badf56526321bb65a6707cb48da4b), verified on `dev/privacyshield` with a matching remote SHA; 35 changed files |
+| Phase 2 GitHub Actions | [Run `37968356823`](https://github.com/Taarunkarthik/PRIVACY-SHIELD/actions/runs/37968356823) passed: backend and real services 40 seconds; frontend 35 seconds |
 
 The proxy fix uses Docker's resolver with a variable upstream so replacing the API container does not leave nginx using the removed container's address. Its live replacement check passed after waiting for the recreated API to become healthy. A request made immediately during startup returned a transient `502`; use Compose's `--wait` when verifying a restart. This test confirms recovery after replacement, not zero-downtime deployment.
 
@@ -49,4 +49,4 @@ The proxy fix uses Docker's resolver with a variable upstream so replacing the A
 - Saved snapshots retain historical metadata. Changing a connection's endpoint does not establish that an older snapshot describes the new endpoint; rediscover before using it for later scanning or policy work.
 - Browser credentials are transient inputs, and API responses omit passwords and ciphertext. This does not replace future production security testing or TLS deployment work.
 
-After final checks pass, review staged files, commit only intended Phase 2 changes, push to `dev/privacyshield`, verify the remote SHA, and inspect the matching Actions run before marking this phase complete.
+The Phase 2 gate is satisfied. Its result does not establish acceptance for later scanning, classification, or policy phases.
