@@ -1,0 +1,24 @@
+import { Activity, Bot, CircleCheck, Database, FileClock, LayoutDashboard, ScanLine, Settings2, ShieldCheck, Waypoints } from 'lucide-react';
+
+export const navigation = [
+  { path: '/', label: 'Overview', icon: LayoutDashboard, group: 'WORKSPACE' },
+  { path: '/connections', label: 'Connections', icon: Database, group: 'DISCOVER' },
+  { path: '/schema', label: 'Schema Explorer', icon: Waypoints, group: 'DISCOVER' },
+  { path: '/scans', label: 'Scan Results', icon: ScanLine, group: 'DISCOVER' },
+  { path: '/classifications', label: 'AI Classification', icon: Bot, group: 'PROTECT' },
+  { path: '/policies', label: 'Masking Policies', icon: ShieldCheck, group: 'PROTECT' },
+  { path: '/approvals', label: 'Approval Queue', icon: CircleCheck, group: 'PROTECT' },
+  { path: '/audit', label: 'Audit Logs', icon: FileClock, group: 'MANAGE' },
+  { path: '/settings', label: 'Settings', icon: Settings2, group: 'MANAGE' },
+];
+
+export const upcomingPages = [
+  { path: '/connections', title: 'Connections', icon: Database, eyebrow: 'YOUR DATA SOURCES', heading: 'A home for your databases', description: 'Register authorized PostgreSQL databases and securely manage their connection details.', next: 'Database connection management is planned for the discovery phase.' },
+  { path: '/schema', title: 'Schema Explorer', icon: Waypoints, eyebrow: 'UNDERSTAND YOUR DATA', heading: 'See how your data connects', description: 'Explore tables, columns, keys, and relationships across your connected databases.', next: 'Schema discovery becomes available alongside database connections.' },
+  { path: '/scans', title: 'Scan Results', icon: ScanLine, eyebrow: 'FIND SENSITIVE DATA', heading: 'Clarity starts with discovery', description: 'Review sampled findings for personal data, including common identifiers and Indian PAN and Aadhaar candidates.', next: 'Scanning and findings will be available in the scanning phase.' },
+  { path: '/classifications', title: 'AI Classification', icon: Bot, eyebrow: 'CONTEXT FOR EVERY FINDING', heading: 'Turn findings into decisions', description: 'Review AI-assisted classifications and protection recommendations, with the final decision always in your hands.', next: 'AI recommendations follow the scanning phase.' },
+  { path: '/policies', title: 'Masking Policies', icon: ShieldCheck, eyebrow: 'PROTECTION WITH PURPOSE', heading: 'Define the right protection', description: 'Create and preview masking policies that protect sensitive data while preserving your source records.', next: 'Policy creation and previews will be available in the masking phase.' },
+  { path: '/approvals', title: 'Approval Queue', icon: CircleCheck, eyebrow: 'HUMAN REVIEW, ALWAYS', heading: 'Every protection gets a review', description: 'Approve a specific policy version before separately choosing to deploy it.', next: 'Policy approvals will become available with masking policies.' },
+  { path: '/audit', title: 'Audit Logs', icon: FileClock, eyebrow: 'A CLEAR RECORD', heading: 'Know what changed, and when', description: 'Review the history of discovery, policy decisions, and protection deployments in one place.', next: 'The searchable activity timeline is planned for the audit phase.' },
+  { path: '/settings', title: 'Settings', icon: Activity, eyebrow: 'YOUR WORKSPACE', heading: 'Built around your workflow', description: 'Manage workspace preferences and review your privacy services as the workspace grows.', next: 'Workspace settings are planned for a later phase.' },
+];

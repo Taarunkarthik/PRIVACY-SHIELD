@@ -1,0 +1,138 @@
+import { act, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { describe, expect, it, vi } from 'vitest';
+import { App } from '../src/App';
+import { SESSION_EXPIRED } from '../src/api/client';
+
+const user = { id: 'test-user', email: 'admin@example.test', role: 'ADMIN', csrf_token: 'test-only-csrf-value' };
+const totals = { databases: 0, tables: 0, sensitive_columns: 0, pending_approvals: 0, deployed_policies: 0, scan_jobs: 0 };
+const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+
+function mockApi(initiallySignedIn = false) {
+  let signedIn = initiallySignedIn;
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, options?: RequestInit) => {
+    const path = String(input);
+    if (path === '/api/v1/auth/me') return signedIn ? json(user) : json({ detail: 'Unauthorized' }, 401);
+    if (path === '/api/v1/auth/login') { signedIn = true; return json(user); }
+    if (path === '/api/v1/auth/logout') {
+      if (new Headers(options?.headers).get('X-CSRF-Token') !== user.csrf_token) return json({}, 403);
+      signedIn = false;
+      return new Response(null, { status: 204 });
+    }
+    if (path === '/api/v1/dashboard/summary') return json(totals);
+    throw new Error(`Unexpected test endpoint: ${path}`);
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  return fetchMock;
+}
+
+describe('workspace sessions', () => {
+  it('signs in using the API and keeps credentials and CSRF out of browser storage', async () => {
+    const fetchMock = mockApi();
+    const visitor = userEvent.setup({ delay: null });
+    render(<App />);
+    await visitor.type(await screen.findByLabelText('Email address'), 'ADMIN@example.test');
+    await visitor.type(screen.getByLabelText('Password'), 'not-a-real-password');
+    await visitor.click(screen.getByRole('button', { name: 'Sign in' }));
+    expect(await screen.findByRole('heading', { name: 'Workspace overview.' })).toBeInTheDocument();
+    expect(await screen.findByText('Your data landscape starts here')).toBeInTheDocument();
+    const loginCall = fetchMock.mock.calls.find(([path]) => path === '/api/v1/auth/login');
+    expect(JSON.parse(String(loginCall?.[1]?.body))).toEqual({ email: user.email, password: 'not-a-real-password' });
+    expect(loginCall?.[1]?.credentials).toBe('same-origin');
+    expect(localStorage.length).toBe(0);
+    expect(sessionStorage.length).toBe(0);
+    expect(screen.queryByLabelText('Password')).not.toBeInTheDocument();
+  });
+
+  it('clears a rejected password and never exposes backend exception details', async () => {
+    const fetchMock = mockApi();
+    const visitor = userEvent.setup({ delay: null });
+    render(<App />);
+    await visitor.type(await screen.findByLabelText('Email address'), user.email);
+    await visitor.type(screen.getByLabelText('Password'), 'incorrect-password');
+    fetchMock.mockResolvedValueOnce(json({ detail: 'secret-postgres-connection-string' }, 401));
+    await visitor.click(screen.getByRole('button', { name: 'Sign in' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('The email or password is incorrect.');
+    expect(screen.getByLabelText('Password')).toHaveValue('');
+    expect(screen.queryByText(/secret-postgres/)).not.toBeInTheDocument();
+  });
+
+  it('restores the server session and signs out with a CSRF-protected request', async () => {
+    const fetchMock = mockApi(true);
+    const visitor = userEvent.setup({ delay: null });
+    render(<App />);
+    await visitor.click(await screen.findByRole('button', { name: 'Sign out' }));
+    expect(await screen.findByRole('heading', { name: 'Sign in to PrivacyShield' })).toBeInTheDocument();
+    const logoutCall = fetchMock.mock.calls.find(([path]) => path === '/api/v1/auth/logout');
+    expect(logoutCall?.[1]?.method).toBe('POST');
+    expect(new Headers(logoutCall?.[1]?.headers).get('X-CSRF-Token')).toBe(user.csrf_token);
+  });
+
+  it('returns to an empty sign-in form when an authenticated API request expires', async () => {
+    const fetchMock = mockApi(true);
+    const visitor = userEvent.setup({ delay: null });
+    render(<App />);
+    await screen.findByText('Your data landscape starts here');
+    fetchMock.mockResolvedValueOnce(json({}, 401));
+    await visitor.click(screen.getByRole('button', { name: 'Refresh' }));
+    expect(await screen.findByText('Your session has expired. Please sign in again.')).toBeInTheDocument();
+    expect(screen.getByLabelText('Password')).toHaveValue('');
+    expect(screen.queryByRole('navigation')).not.toBeInTheDocument();
+    expect(localStorage.length).toBe(0);
+  });
+
+  it('does not pretend sign-out succeeded when the network fails', async () => {
+    const fetchMock = mockApi(true);
+    const visitor = userEvent.setup({ delay: null });
+    render(<App />);
+    await screen.findByText('Your data landscape starts here');
+    fetchMock.mockRejectedValueOnce(new TypeError('offline'));
+    await visitor.click(screen.getByRole('button', { name: 'Sign out' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('The workspace could not be reached.');
+    expect(screen.getByRole('navigation')).toBeInTheDocument();
+  });
+
+  it('restores a connection after an initial network failure', async () => {
+    const fetchMock = mockApi(true);
+    fetchMock.mockRejectedValueOnce(new TypeError('offline'));
+    const visitor = userEvent.setup({ delay: null });
+    render(<App />);
+    await visitor.click(await screen.findByRole('button', { name: 'Try connection again' }));
+    expect(await screen.findByRole('heading', { name: 'Workspace overview.' })).toBeInTheDocument();
+  });
+});
+
+describe('dashboard and navigation', () => {
+  it('shows all nine routes and labels unimplemented features honestly', async () => {
+    mockApi(true);
+    const visitor = userEvent.setup({ delay: null });
+    render(<App />);
+    const nav = await screen.findByRole('navigation', { name: 'Main navigation' });
+    expect(nav.querySelectorAll('a')).toHaveLength(9);
+    await visitor.click(screen.getByRole('link', { name: 'Masking Policies' }));
+    expect(await screen.findByRole('heading', { name: 'Define the right protection' })).toBeInTheDocument();
+    expect(screen.getByText('Coming in a later phase')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /deploy/i })).not.toBeInTheDocument();
+  });
+
+  it('distinguishes missing metrics from an empty workspace after a dashboard failure', async () => {
+    const fetchMock = mockApi(true);
+    fetchMock.mockResolvedValueOnce(json(user)).mockResolvedValueOnce(json({}, 500));
+    render(<App />);
+    expect(await screen.findByRole('alert')).toHaveTextContent('This request could not be completed.');
+    expect(await screen.findByText('Workspace totals unavailable')).toBeInTheDocument();
+    expect(screen.queryByText('Your data landscape starts here')).not.toBeInTheDocument();
+  });
+
+  it('preserves the selected page after reauthentication without retaining its session', async () => {
+    mockApi(true);
+    const visitor = userEvent.setup({ delay: null });
+    render(<App />);
+    await visitor.click(await screen.findByRole('link', { name: 'Settings' }));
+    await act(async () => window.dispatchEvent(new Event(SESSION_EXPIRED)));
+    await visitor.type(screen.getByLabelText('Email address'), user.email);
+    await visitor.type(screen.getByLabelText('Password'), 'not-a-real-password');
+    await visitor.click(screen.getByRole('button', { name: 'Sign in' }));
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Built around your workflow' })).toBeInTheDocument());
+  });
+});

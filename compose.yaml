@@ -1,0 +1,133 @@
+name: privacyshield
+
+x-backend: &backend
+  image: privacyshield-backend:local
+  build: ./backend
+  init: true
+  security_opt: ["no-new-privileges:true"]
+  restart: unless-stopped
+
+x-app-env: &app-env
+  DATABASE_URL: postgresql+psycopg://ps_app:${APP_DATABASE_PASSWORD:?Run python scripts/setup.py}@control-db:5432/privacyshield
+  REDIS_URL: redis://redis:6379/0
+  CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?Run python scripts/setup.py}
+  COOKIE_SECURE: ${COOKIE_SECURE:-false}
+  ALLOWED_ORIGINS: '${ALLOWED_ORIGINS:-["http://localhost:8080"]}'
+  OLLAMA_BASE_URL: http://ollama:11434
+  OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:1.5b}
+
+services:
+  control-db:
+    image: postgres:16-bookworm@sha256:0ea6700a3b4f0ae6ce746519073558aed4d88a79d8d07622a9a644946c7319c4
+    environment:
+      POSTGRES_PASSWORD: ${CONTROL_POSTGRES_PASSWORD:?Run python scripts/setup.py}
+      POSTGRES_DB: postgres
+      MIGRATOR_PASSWORD: ${MIGRATOR_PASSWORD:?Run python scripts/setup.py}
+      APP_DATABASE_PASSWORD: ${APP_DATABASE_PASSWORD:?Run python scripts/setup.py}
+    volumes:
+      - control-data:/var/lib/postgresql/data
+      - ./infra/postgres/control-init.sh:/docker-entrypoint-initdb.d/10-control.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d privacyshield"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  target-db:
+    image: postgres:16-bookworm@sha256:0ea6700a3b4f0ae6ce746519073558aed4d88a79d8d07622a9a644946c7319c4
+    environment:
+      POSTGRES_PASSWORD: ${TARGET_POSTGRES_PASSWORD:?Run python scripts/setup.py}
+      POSTGRES_DB: enterprise_demo
+      SCANNER_PASSWORD: ${SCANNER_PASSWORD:?Run python scripts/setup.py}
+      DEPLOYER_PASSWORD: ${DEPLOYER_PASSWORD:?Run python scripts/setup.py}
+      READER_PASSWORD: ${READER_PASSWORD:?Run python scripts/setup.py}
+    volumes:
+      - target-data:/var/lib/postgresql/data
+      - ./infra/postgres/target-init.sh:/docker-entrypoint-initdb.d/10-target.sh:ro
+      - ./infra/postgres/demo.sql:/opt/privacyshield/demo.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d enterprise_demo"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.4-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "128mb", "--maxmemory-policy", "noeviction"]
+    volumes: ["redis-data:/data"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  migrate:
+    <<: *backend
+    restart: "no"
+    environment:
+      <<: *app-env
+      MIGRATION_DATABASE_URL: postgresql+psycopg://ps_migrator:${MIGRATOR_PASSWORD:?Run python scripts/setup.py}@control-db:5432/privacyshield
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      control-db: {condition: service_healthy}
+
+  api:
+    <<: *backend
+    environment: *app-env
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health/ready', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  worker:
+    <<: *backend
+    environment: *app-env
+    command: ["celery", "-A", "app.workers.celery_app:celery_app", "worker", "--loglevel=INFO", "--concurrency=1"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+
+  frontend:
+    build: ./frontend
+    ports: ["127.0.0.1:${FRONTEND_PORT:-8080}:8080"]
+    depends_on:
+      api: {condition: service_healthy}
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+
+  ollama:
+    image: ollama/ollama:0.40.2@sha256:b86366bb528bbf7f1424435d165028497a5b69bf6ddb4fa5a87102e2b79f44fb
+    profiles: ["ai"]
+    environment:
+      OLLAMA_MAX_LOADED_MODELS: "1"
+      OLLAMA_NUM_PARALLEL: "1"
+    volumes: ["ollama-data:/root/.ollama"]
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  ollama-pull:
+    image: ollama/ollama:0.40.2@sha256:b86366bb528bbf7f1424435d165028497a5b69bf6ddb4fa5a87102e2b79f44fb
+    profiles: ["ai"]
+    environment: {OLLAMA_HOST: "http://ollama:11434"}
+    command: ["pull", "${OLLAMA_MODEL:-qwen2.5:1.5b}"]
+    depends_on:
+      ollama: {condition: service_healthy}
+    restart: "no"
+
+volumes:
+  control-data:
+  target-data:
+  redis-data:
+  ollama-data:

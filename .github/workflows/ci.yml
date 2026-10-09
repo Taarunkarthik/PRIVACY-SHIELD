@@ -1,0 +1,153 @@
+name: PrivacyShield CI
+
+on:
+  push:
+    branches: [dev/privacyshield, main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend and real services
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-bookworm@sha256:0ea6700a3b4f0ae6ce746519073558aed4d88a79d8d07622a9a644946c7319c4
+        env:
+          POSTGRES_DB: privacyshield
+          # Disposable runner only. Runtime roles below receive random passwords.
+          # The service is bound to loopback and is never a deployment config.
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 127.0.0.1:5432:5432
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U postgres -d privacyshield"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      redis:
+        image: redis:7.4-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
+        ports:
+          - 127.0.0.1:6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    defaults:
+      run:
+        working-directory: backend
+        shell: bash
+    env:
+      REDIS_URL: redis://127.0.0.1:6379/0
+      COOKIE_SECURE: "false"
+      ALLOWED_ORIGINS: '["http://localhost:8080"]'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - name: Install locked backend dependencies
+        run: uv sync --locked --extra dev
+      - name: Provision isolated database roles and ephemeral configuration
+        run: |
+          uv run python - <<'PY'
+          import os
+          import secrets
+          from pathlib import Path
+          import psycopg
+          from psycopg import sql
+          from cryptography.fernet import Fernet
+
+          migrator_password = secrets.token_hex(24)
+          app_password = secrets.token_hex(24)
+          key = Fernet.generate_key().decode()
+          for value in (migrator_password, app_password, key):
+              print(f"::add-mask::{value}")
+          with psycopg.connect(
+              "host=127.0.0.1 dbname=privacyshield user=postgres", autocommit=True
+          ) as conn:
+              for name, password in (
+                  ("ps_migrator", migrator_password), ("ps_app", app_password)
+              ):
+                  conn.execute(sql.SQL(
+                      "CREATE ROLE {} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE "
+                      "NOBYPASSRLS PASSWORD {}"
+                  ).format(sql.Identifier(name), sql.Literal(password)))
+              conn.execute("ALTER DATABASE privacyshield OWNER TO ps_migrator")
+              conn.execute("REVOKE ALL ON DATABASE privacyshield FROM PUBLIC")
+              conn.execute("GRANT CONNECT ON DATABASE privacyshield TO ps_migrator, ps_app")
+              conn.execute("ALTER SCHEMA public OWNER TO ps_migrator")
+              conn.execute("REVOKE CREATE ON SCHEMA public FROM PUBLIC")
+              conn.execute("GRANT USAGE ON SCHEMA public TO ps_app")
+          config = {
+              "DATABASE_URL": (
+                  "postgresql+psycopg://ps_app:" + app_password
+                  + "@127.0.0.1:5432/privacyshield"
+              ),
+              "MIGRATION_DATABASE_URL": (
+                  "postgresql+psycopg://ps_migrator:" + migrator_password
+                  + "@127.0.0.1:5432/privacyshield"
+              ),
+              "CREDENTIAL_ENCRYPTION_KEY": key,
+          }
+          with Path(os.environ["GITHUB_ENV"]).open("a", encoding="utf-8") as stream:
+              for name, value in config.items():
+                  stream.write(f"{name}={value}\n")
+          PY
+      - name: Static checks and unit tests
+        run: |
+          uv run ruff check .
+          uv run pytest -m "not integration"
+      - name: Apply and check migrations
+        run: |
+          uv run alembic upgrade head
+          uv run alembic check
+      - name: Start a separate Linux Celery worker
+        run: |
+          uv run celery -A app.workers.celery_app:celery_app worker \
+            --loglevel=WARNING --concurrency=1 > "$RUNNER_TEMP/privacyshield-worker.log" 2>&1 &
+          echo "WORKER_PID=$!" >> "$GITHUB_ENV"
+      - name: Real PostgreSQL, Redis, session, and worker tests
+        run: uv run pytest -m integration
+      - name: Stop worker
+        if: always()
+        run: |
+          if [ -n "${WORKER_PID:-}" ]; then
+            kill "$WORKER_PID" 2>/dev/null || true
+          fi
+
+  frontend:
+    name: Frontend checks and build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install locked frontend dependencies
+        run: npm ci
+      - name: Type checking
+        run: npm run typecheck
+      - name: Component tests
+        run: npm test
+      - name: Production build
+        run: npm run build
