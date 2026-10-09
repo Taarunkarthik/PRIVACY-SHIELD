@@ -6,9 +6,11 @@ PrivacyShield is a PostgreSQL privacy platform being built in seven tested phase
 
 ## Current delivery
 
-Phase 1 provides the control-plane schema, authenticated API, React dashboard shell, Docker topology, synthetic target database, worker foundation, and initial tests. Discovery, scanning, AI classification, policy enforcement, and their user workflows are later phases. Navigation to those pages must clearly identify capabilities that are not yet available; demonstration counts must never be presented as scanned findings.
+Phase 1 provides the control-plane schema, authenticated API, React dashboard shell, Docker topology, synthetic target database, worker foundation, and initial tests. Phase 2 adds connection management and schema discovery; its final delivery checks are still pending. Scanning, AI classification, and policy enforcement remain later phases. Pages for unavailable capabilities say so; demonstration counts must never be presented as scanned findings.
 
-Phase 1 is implemented and its local backend, real-service, HTTP, and frontend checks have passed. Browser review and GitHub delivery verification are tracked separately; no successful push or CI run is claimed here. See [verification evidence](docs/verification.md) and [the delivery roadmap](docs/roadmap.md) for current status.
+Phase 1 is delivered: local checks, the authenticated browser workflow, remote commit confirmation, and GitHub Actions passed. The verified commit is [`4f1efd2`](https://github.com/Taarunkarthik/PRIVACY-SHIELD/commit/4f1efd225888f90178540db75d4fbb2439fea90a). Phase 2 connection management and schema discovery are in progress; later phases remain pending. See [verification evidence](docs/verification.md) and [the delivery roadmap](docs/roadmap.md) for current status.
+
+The submission target is **12 October 2026**, with working code and a reproducible demonstration. The seven phase gates remain in place within the three-day work window; the schedule is a target, not a guarantee of completion.
 
 ## Local setup
 
@@ -67,7 +69,7 @@ npm test
 npm run build
 ```
 
-Integration tests require migrated PostgreSQL, Redis, and a **separate Linux Celery worker**. A mocked broker or eager Celery execution does not satisfy that gate. [GitHub Actions](.github/workflows/ci.yml) runs backend and frontend checks, migrations, and real control-database/Redis/worker tests. Target-database role checks run through the local `--integration` gate; the CI services job does not provision the synthetic target. A successful local build alone does not establish integration success.
+Integration tests require migrated PostgreSQL, Redis, and a **separate Linux Celery worker**. A mocked broker or eager Celery execution does not satisfy that gate. The Phase 2 [GitHub Actions workflow](.github/workflows/ci.yml) additionally provisions a separate synthetic target PostgreSQL service using the repository's initialization scripts. Its first run remains pending until Phase 2 is pushed; the successful Phase 1 run covered the control database, Redis, worker, and frontend. A successful local build alone does not establish integration success.
 
 ## Architecture and documentation
 
@@ -76,21 +78,23 @@ The backend is a FastAPI modular monolith shared by API and Celery processes. A 
 | Directory | Responsibility |
 | --- | --- |
 | `backend/` | FastAPI, SQLAlchemy models, Alembic migrations, workers, tests |
-| `frontend/` | React, TypeScript, routes, dashboard, component tests |
-| `infra/` | PostgreSQL provisioning and frontend reverse proxy |
+| `frontend/` | React, TypeScript, routes, dashboard, reverse proxy, UI tests |
+| `infra/` | PostgreSQL role provisioning and synthetic source fixtures |
 | `scripts/` | Local secret setup and verification |
 | `docs/` | Architecture, normalized database design, roadmap, operations |
 
 - [Architecture and trust boundaries](docs/architecture.md)
 - [Database design, ER diagram, and transaction boundaries](docs/database-design.md)
-- [Seven-phase roadmap and acceptance criteria](docs/roadmap.md)
+- [Three-day delivery target and seven phase gates](docs/roadmap.md)
+- [Connection and discovery contract](docs/discovery.md)
 - [Setup, testing, demo, and troubleshooting](docs/operations.md)
 - [Phase 1 verification evidence and limitations](docs/verification.md)
+- [Phase 2 verification evidence and remaining gates](docs/verification-phase2.md)
 
 ## Security and delivery rules
 
 Use only databases you are authorized to inspect. The bundled target is synthetic. PAN and Aadhaar detection in later phases identifies **candidates**, not verified identities. Findings will describe bounded samples rather than assert full-table coverage.
 
-The foundation includes credential-encryption utilities; the discovery phase will expose connection management with encrypted storage and write-only password inputs. Raw source samples, keys, and credentials must not appear in logs, task payloads, AI input, or committed files. AI recommendations will be advisory and unable to execute SQL. Policy deployment will use predefined SQL templates and a separate explicit approval action.
+The connection API uses encrypted credential storage and write-only password inputs. Raw source samples, keys, and credentials must not appear in logs, task payloads, AI input, or committed files. AI recommendations will be advisory and unable to execute SQL. Policy deployment will use predefined SQL templates and a separate explicit approval action.
 
 Commit tested phases to `dev/privacyshield`; do not force-push or merge into `main` without approval. Confirm each remote SHA after pushing and report features, changed files, tests, and the GitHub commit link. Never label an unverified phase complete.

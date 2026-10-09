@@ -13,6 +13,7 @@ x-app-env: &app-env
   CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?Run python scripts/setup.py}
   COOKIE_SECURE: ${COOKIE_SECURE:-false}
   ALLOWED_ORIGINS: '${ALLOWED_ORIGINS:-["http://localhost:8080"]}'
+  TARGET_ALLOWED_HOSTS: '${TARGET_ALLOWED_HOSTS:-["target-db"]}'
   OLLAMA_BASE_URL: http://ollama:11434
   OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:1.5b}
 

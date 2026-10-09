@@ -13,7 +13,9 @@ test('real browser signs in, renders live totals, navigates, and signs out', asy
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Sign in to PrivacyShield' })).toBeVisible();
   await page.getByLabel('Email address').fill(email);
-  await page.getByLabel('Password', { exact: true }).fill(password);
+  await page.getByLabel('Password', { exact: true }).fill(password).catch(() => {
+    throw new Error('The login password field could not be filled.');
+  });
   const summaryResponse = page.waitForResponse((response) => response.url().endsWith('/api/v1/dashboard/summary') && response.status() === 200);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   const summary = await (await summaryResponse).json() as Record<string, number>;
@@ -42,8 +44,8 @@ test('real browser signs in, renders live totals, navigates, and signs out', asy
   await expect(nav.getByRole('link')).toHaveCount(9);
   for (const label of ['Connections', 'Schema Explorer', 'Scan Results', 'AI Classification', 'Masking Policies', 'Approval Queue', 'Audit Logs', 'Settings']) {
     await nav.getByRole('link', { name: label, exact: true }).click();
-    await expect(page.getByRole('heading', { name: label, exact: true })).toBeVisible();
-    await expect(page.getByText('Coming in a later phase', { exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: new RegExp(`^${label}\\.?$`) })).toBeVisible();
+    if (!['Connections', 'Schema Explorer'].includes(label)) await expect(page.getByText('Coming in a later phase', { exact: true })).toBeVisible();
   }
   await nav.getByRole('link', { name: 'Overview', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Workspace overview.' })).toBeVisible();

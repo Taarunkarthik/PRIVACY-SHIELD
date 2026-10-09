@@ -20,7 +20,8 @@ def main() -> None:
     values = {name: secrets.token_hex(24) for name in names}
     values["CREDENTIAL_ENCRYPTION_KEY"] = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode()
     values.update(FRONTEND_PORT="8080", COOKIE_SECURE="false",
-                  ALLOWED_ORIGINS='["http://localhost:8080"]', OLLAMA_MODEL="qwen2.5:1.5b")
+                  ALLOWED_ORIGINS='["http://localhost:8080"]',
+                  TARGET_ALLOWED_HOSTS='["target-db"]', OLLAMA_MODEL="qwen2.5:1.5b")
     with destination.open("x", encoding="utf-8", newline="\n") as stream:
         stream.write("# Local generated secrets. Never commit this file.\n")
         stream.writelines(f"{key}={value}\n" for key, value in values.items())

@@ -51,7 +51,18 @@ def main() -> None:
             "Prepare test role access")
         env["DATABASE_URL"] = f"postgresql+psycopg://ps_app:{quote(config['APP_DATABASE_PASSWORD'], safe='')}@control-db:5432/privacyshield_test"
         env["MIGRATION_DATABASE_URL"] = f"postgresql+psycopg://ps_migrator:{quote(config['MIGRATOR_PASSWORD'], safe='')}@control-db:5432/privacyshield_test"
-        isolated = compose + ["run", "--rm", "-T", "--no-deps", "-e", "DATABASE_URL", "-e", "MIGRATION_DATABASE_URL", "migrate"]
+        env.update(TEST_TARGET_HOST="target-db", TEST_TARGET_PORT="5432",
+                   TARGET_ALLOWED_HOSTS='["target-db"]',
+                   TEST_TARGET_SCANNER_PASSWORD=config["SCANNER_PASSWORD"],
+                   TEST_TARGET_DEPLOYER_PASSWORD=config["DEPLOYER_PASSWORD"],
+                   TEST_TARGET_SUPERUSER_PASSWORD=config["TARGET_POSTGRES_PASSWORD"])
+        test_env_names = ["DATABASE_URL", "MIGRATION_DATABASE_URL", "TARGET_ALLOWED_HOSTS",
+                          "TEST_TARGET_HOST", "TEST_TARGET_PORT", "TEST_TARGET_SCANNER_PASSWORD",
+                          "TEST_TARGET_DEPLOYER_PASSWORD", "TEST_TARGET_SUPERUSER_PASSWORD"]
+        isolated = compose + ["run", "--rm", "-T", "--no-deps"]
+        for name in test_env_names:
+            isolated.extend(["-e", name])
+        isolated.append("migrate")
         run(isolated + ["alembic", "upgrade", "head"], "Migrate isolated test database", env=env)
         run(isolated + ["alembic", "check"], "Check models agree with migrations", env=env)
         run(isolated + ["python", "-m", "pytest", "-q", "-m", "integration"],

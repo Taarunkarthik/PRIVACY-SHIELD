@@ -19,5 +19,6 @@ export default defineConfig({
     clearMocks: true,
     restoreMocks: true,
     testTimeout: 15000,
+    fileParallelism: false,
   },
 });

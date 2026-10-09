@@ -72,7 +72,7 @@ To include all frontend checks, install Node 24/npm on the host and run:
 python scripts/check.py --integration --frontend
 ```
 
-`--frontend` runs `npm ci`, type checking, component tests, and a production build using host npm. The default Docker-only checks do not run these frontend commands. GitHub Actions runs frontend checks separately and tests the control database, Redis, and worker; it does not currently provision the synthetic target for role checks.
+`--frontend` runs `npm ci`, type checking, component tests, and a production build using host npm. The default Docker-only checks do not run these frontend commands. GitHub Actions runs frontend checks separately. The Phase 2 workflow adds a separate target PostgreSQL service and initializes it from the same target role/data scripts used by Compose; acceptance of that new workflow remains pending until its run passes.
 
 After bootstrapping an administrator, verify the actual browser-facing HTTP proxy and authentication endpoints using a private file containing that account's password:
 
@@ -83,6 +83,18 @@ python scripts/check_http.py --email admin@example.com --password-file .secrets/
 The `.secrets/` directory is ignored by Git. Use a protected local file for an account you control; never print its contents or pass the password as a command-line argument. This check verifies proxy security headers, PostgreSQL/Redis readiness, login, dashboard responses, CSRF rejection, logout, and session revocation. It creates normal login/logout audit events and does not scan or modify target data. `--base-url` supports an alternate local endpoint whose origin is configured in the API.
 
 See [the verification record](verification.md) for the latest measured results. Component tests mock network responses; they do not replace real HTTP or browser checks.
+
+For the real browser workflow, set only the path to the protected password file, then run from `frontend/`:
+
+```powershell
+$env:PS_E2E_ADMIN_EMAIL = 'admin@example.com'
+$env:PS_E2E_PASSWORD_FILE = (Resolve-Path '.secrets/admin-password.txt').Path
+$env:PS_E2E_BROWSER_CHANNEL = 'msedge'
+Set-Location frontend
+npm run test:e2e
+```
+
+This example uses installed Microsoft Edge. Alternatively, install Playwright Chromium with `npx playwright install chromium` and omit `PS_E2E_BROWSER_CHANNEL`. `PS_E2E_BASE_URL` defaults to `http://localhost:8080`. Traces and video are disabled; screenshots are written only to ignored test artifacts. The published Phase 1 browser check verifies all nine routes, live API metrics, session persistence, desktop/mobile layout, and logout. CI's `npm test` remains the mocked component suite and does not need an administrator secret.
 
 Backend development commands (from `backend/`):
 

@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     redis_url: SecretStr = SecretStr("redis://redis:6379/0")
     credential_encryption_key: SecretStr
     allowed_origins: list[str] = Field(default_factory=lambda: ["http://localhost:8080"])
+    target_allowed_hosts: list[str] = Field(default_factory=lambda: ["target-db"])
     cookie_secure: bool = False
     session_hours: int = Field(default=8, ge=1, le=24)
     login_attempt_limit: int = Field(default=10, ge=1, le=100)
@@ -50,6 +51,15 @@ class Settings(BaseSettings):
         ):
             raise ValueError("Specify explicit HTTP(S) origins without trailing slashes")
         return values
+
+    @field_validator("target_allowed_hosts")
+    @classmethod
+    def exact_target_hosts(cls, values: list[str]) -> list[str]:
+        from app.schemas.connections import normalize_host
+
+        if not values:
+            raise ValueError("At least one explicit target host is required")
+        return sorted({normalize_host(value) for value in values})
 
 
 @lru_cache

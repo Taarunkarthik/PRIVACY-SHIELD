@@ -33,6 +33,20 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
+      target:
+        image: postgres:16-bookworm@sha256:0ea6700a3b4f0ae6ce746519073558aed4d88a79d8d07622a9a644946c7319c4
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_DB: enterprise_demo
+          # Bootstrap only; the provisioning step switches TCP to SCRAM.
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 127.0.0.1:5433:5432
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U postgres -d enterprise_demo"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
       redis:
         image: redis:7.4-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
         ports:
@@ -50,13 +64,17 @@ jobs:
       REDIS_URL: redis://127.0.0.1:6379/0
       COOKIE_SECURE: "false"
       ALLOWED_ORIGINS: '["http://localhost:8080"]'
+      TARGET_ALLOWED_HOSTS: '["127.0.0.1"]'
+      TEST_TARGET_HOST: 127.0.0.1
+      TEST_TARGET_PORT: "5433"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.0.0
         with:
           python-version: "3.12"
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v10.2.0
         with:
+          version: "0.11.3"
           enable-cache: true
           cache-dependency-glob: backend/uv.lock
       - name: Install locked backend dependencies
@@ -73,8 +91,12 @@ jobs:
 
           migrator_password = secrets.token_hex(24)
           app_password = secrets.token_hex(24)
+          target_passwords = {
+              name: secrets.token_hex(24)
+              for name in ("superuser", "scanner", "deployer", "reader")
+          }
           key = Fernet.generate_key().decode()
-          for value in (migrator_password, app_password, key):
+          for value in (migrator_password, app_password, key, *target_passwords.values()):
               print(f"::add-mask::{value}")
           with psycopg.connect(
               "host=127.0.0.1 dbname=privacyshield user=postgres", autocommit=True
@@ -92,6 +114,13 @@ jobs:
               conn.execute("ALTER SCHEMA public OWNER TO ps_migrator")
               conn.execute("REVOKE CREATE ON SCHEMA public FROM PUBLIC")
               conn.execute("GRANT USAGE ON SCHEMA public TO ps_app")
+          with psycopg.connect(
+              "host=127.0.0.1 port=5433 dbname=enterprise_demo user=postgres",
+              autocommit=True,
+          ) as conn:
+              conn.execute(sql.SQL("ALTER ROLE postgres PASSWORD {}").format(
+                  sql.Literal(target_passwords["superuser"])
+              ))
           config = {
               "DATABASE_URL": (
                   "postgresql+psycopg://ps_app:" + app_password
@@ -102,10 +131,50 @@ jobs:
                   + "@127.0.0.1:5432/privacyshield"
               ),
               "CREDENTIAL_ENCRYPTION_KEY": key,
+              "SCANNER_PASSWORD": target_passwords["scanner"],
+              "DEPLOYER_PASSWORD": target_passwords["deployer"],
+              "READER_PASSWORD": target_passwords["reader"],
+              "TEST_TARGET_SCANNER_PASSWORD": target_passwords["scanner"],
+              "TEST_TARGET_DEPLOYER_PASSWORD": target_passwords["deployer"],
+              "TEST_TARGET_SUPERUSER_PASSWORD": target_passwords["superuser"],
           }
           with Path(os.environ["GITHUB_ENV"]).open("a", encoding="utf-8") as stream:
               for name, value in config.items():
                   stream.write(f"{name}={value}\n")
+          PY
+      - name: Provision separate synthetic target with repository fixtures
+        env:
+          TARGET_CONTAINER: ${{ job.services.target.id }}
+        run: |
+          docker exec "$TARGET_CONTAINER" mkdir -p /opt/privacyshield
+          docker cp ../infra/postgres/demo.sql "$TARGET_CONTAINER:/opt/privacyshield/demo.sql"
+          docker exec -i -e SCANNER_PASSWORD -e DEPLOYER_PASSWORD -e READER_PASSWORD \
+            "$TARGET_CONTAINER" sh < ../infra/postgres/target-init.sh
+          docker exec -i -u postgres "$TARGET_CONTAINER" sh <<'SH'
+          sed -i '/^host/s/[[:space:]]trust[[:space:]]*$/ scram-sha-256/' "$PGDATA/pg_hba.conf"
+          pg_ctl reload -D "$PGDATA"
+          SH
+          uv run python - <<'PY'
+          import os
+          import time
+          import psycopg
+
+          # Verify authentication after asynchronous pg_hba reload, without
+          # exposing either the generated credential or the expected failure.
+          settings = dict(host="127.0.0.1", port=5433, dbname="enterprise_demo",
+                          user="ps_scanner", connect_timeout=3)
+          for attempt in range(20):
+              try:
+                  with psycopg.connect(**settings, password="invalid-ci-password"):
+                      pass
+              except psycopg.OperationalError:
+                  break
+              time.sleep(0.1)
+          else:
+              raise SystemExit("Target did not enable password authentication")
+          with psycopg.connect(**settings, password=os.environ["SCANNER_PASSWORD"]) as conn:
+              assert conn.execute("SELECT count(*) FROM enterprise.customers").fetchone()[0] == 100
+          print("Target initialized from repository fixtures; password authentication confirmed")
           PY
       - name: Static checks and unit tests
         run: |
@@ -120,7 +189,7 @@ jobs:
           uv run celery -A app.workers.celery_app:celery_app worker \
             --loglevel=WARNING --concurrency=1 > "$RUNNER_TEMP/privacyshield-worker.log" 2>&1 &
           echo "WORKER_PID=$!" >> "$GITHUB_ENV"
-      - name: Real PostgreSQL, Redis, session, and worker tests
+      - name: Real control/target PostgreSQL, discovery, session, and worker tests
         run: uv run pytest -m integration
       - name: Stop worker
         if: always()
@@ -137,8 +206,8 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.1.0
         with:
           node-version: "24"
           cache: npm
