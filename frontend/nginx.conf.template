@@ -13,10 +13,18 @@ http {
     fastcgi_temp_path /tmp/fastcgi_temp;
     uwsgi_temp_path /tmp/uwsgi_temp;
     scgi_temp_path /tmp/scgi_temp;
+    # Resolver is derived from /etc/resolv.conf at startup (Docker 127.0.0.11,
+    # Render's DNS otherwise) so Compose can replace the API container.
+    resolver ${RESOLVER} valid=10s ipv6=off;
     server {
         listen ${PORT};
         root /usr/share/nginx/html;
         index index.html;
+        # API_BASE_URL is the upstream (local Compose default http://api:8000;
+        # Render supplies the API's https URL). Route with the upstream's own
+        # host and pass the browser host separately to avoid an edge proxy loop.
+        set $api_upstream ${API_BASE_URL};
+        set $api_host_header ${API_UPSTREAM_HOST};
         add_header X-Content-Type-Options nosniff always;
         add_header X-Frame-Options DENY always;
         add_header Referrer-Policy no-referrer always;
@@ -26,9 +34,10 @@ http {
         # FastAPI's interactive docs load Swagger UI from jsDelivr. This exception
         # is intentionally limited to the documentation page, never the app.
         location = /api/docs {
-            proxy_pass ${API_BASE_URL};
+            proxy_pass $api_upstream;
             proxy_ssl_server_name on;
-            proxy_set_header Host $http_host;
+            proxy_set_header Host $api_host_header;
+            proxy_set_header X-Forwarded-Host $http_host;
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto $scheme;
@@ -41,9 +50,10 @@ http {
             add_header Cache-Control "no-store" always;
         }
         location /api/ {
-            proxy_pass ${API_BASE_URL};
+            proxy_pass $api_upstream;
             proxy_ssl_server_name on;
-            proxy_set_header Host $http_host;
+            proxy_set_header Host $api_host_header;
+            proxy_set_header X-Forwarded-Host $http_host;
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto $scheme;

@@ -71,6 +71,23 @@ concurrently and on every deploy.
 - **No metrics endpoint:** observability is the health endpoints and redacted
   logs, visible in the Render Dashboard.
 
+## Troubleshooting
+
+- **`508 Loop Detected` on the login page.** The frontend proxies `/api/*` to
+  the API. A loop happens when the proxy is routed back to the frontend, which
+  occurs if the upstream host is wrong or the forwarded `Host` header names the
+  frontend. The nginx config routes using the upstream's own host
+  (`Host $api_host_header`) and passes the browser host as `X-Forwarded-Host`,
+  so the same-origin check still works. If you still see a loop, confirm the
+  frontend service's `API_HOST` is the API's **internal/private** hostname (the
+  API service's *Info → Internal* host, not its `.onrender.com` URL) and
+  `API_PORT` matches the API's port.
+- **`502` from the API proxy.** The frontend cannot reach the API's private
+  hostname; check that both services are in the same region and that `API_HOST`
+  / `API_PORT` are set on the frontend service.
+- **`403` on sign-in.** The API rejected the request origin; ensure the browser
+  talks to the frontend's URL (same origin) and that `COOKIE_SECURE=true`.
+
 ## Local alternative
 
 The same application still runs locally with `docker compose up -d --build --wait`;

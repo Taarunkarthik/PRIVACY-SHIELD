@@ -20,9 +20,10 @@ def verify_origin(request: Request) -> None:
         return
     # Same-origin deployments behind a reverse proxy (for example a hosted
     # frontend that serves the SPA and proxies /api) present an Origin whose
-    # host equals the request Host. This is the browser's own same-origin
-    # check, not a relaxation to arbitrary cross-origin callers.
-    host = request.headers.get("host", "")
+    # host equals the browser-facing host. The proxy forwards that host as
+    # X-Forwarded-Host while routing with its own Host header. This is the
+    # browser's own same-origin check, not a relaxation to arbitrary callers.
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host", "")
     if host and urlsplit(origin).netloc == host:
         return
     raise HTTPException(status.HTTP_403_FORBIDDEN, "Origin is not allowed")
