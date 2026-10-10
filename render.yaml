@@ -116,7 +116,4 @@ services:
     healthCheckPath: /health
     envVars:
       - key: API_HOSTPORT
-        fromService:
-          type: web
-          name: privacyshield-api
-          property: hostport
+        value: privacyshield-api:10000
