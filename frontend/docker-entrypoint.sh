@@ -5,13 +5,9 @@ set -eu
 
 : "${API_HOSTPORT:=api:8000}"
 : "${PORT:=8080}"
-if [ -z "${RESOLVER:-}" ]; then
-    RESOLVER="$(awk '/^nameserver/{print $2; exit}' /etc/resolv.conf 2>/dev/null || true)"
-    [ -n "$RESOLVER" ] || RESOLVER="127.0.0.11"
-fi
-export API_HOSTPORT PORT RESOLVER
+export API_HOSTPORT PORT
 
-envsubst '${API_HOSTPORT} ${PORT} ${RESOLVER}' \
+envsubst '${API_HOSTPORT} ${PORT}' \
     < /etc/nginx/nginx.conf.template > /tmp/nginx.conf
 
 exec nginx -c /tmp/nginx.conf -g 'daemon off;'
