@@ -1,9 +1,11 @@
 # Phase 5 verification record
 
 Phase 5 passed the full local acceptance gate, including a real target-side
-deployment that proves reader isolation and unchanged source data. Commit,
-push, remote-SHA verification, and matching GitHub Actions remain the delivery
-gate; those rows are recorded after the push.
+deployment that proves reader isolation and unchanged source data. It is
+committed, pushed, and verified remotely: commit `304222f` on
+`dev/privacyshield` matched the remote SHA and GitHub Actions run
+[38069369614](https://github.com/Taarunkarthik/PRIVACY-SHIELD/actions/runs/38069369614)
+passed.
 
 ## Environment
 
@@ -64,5 +66,9 @@ gate; those rows are recorded after the push.
 
 ## GitHub delivery
 
-Pending: successful push, matching remote SHA, and a passing GitHub Actions run
-are required before Phase 5 is claimed complete.
+- Commit [`304222f`](https://github.com/Taarunkarthik/PRIVACY-SHIELD/commit/304222f6307fc5e843eddc1bcc0f7d0f5e4bef0f)
+  on `dev/privacyshield`; the remote SHA matched the local commit.
+- [GitHub Actions run `38069369614`](https://github.com/Taarunkarthik/PRIVACY-SHIELD/actions/runs/38069369614)
+  passed: backend (real PostgreSQL/target/Redis/worker) and frontend jobs.
+- The CI backend job provisions the reader role so the real deployment test
+  runs against a separate synthetic target.
