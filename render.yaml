@@ -115,5 +115,5 @@ services:
     dockerContext: ./frontend
     healthCheckPath: /health
     envVars:
-      - key: API_HOSTPORT
-        value: privacyshield-api:10000
+      - key: API_BASE_URL
+        value: https://privacyshield-api.onrender.com

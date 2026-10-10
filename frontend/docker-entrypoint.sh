@@ -4,11 +4,11 @@
 # existing service created manually before the Blueprint was synced.
 set -eu
 
-: "${API_HOSTPORT:=privacyshield-api:10000}"
+: "${API_BASE_URL:=https://privacyshield-api.onrender.com}"
 : "${PORT:=8080}"
-export API_HOSTPORT PORT
+export API_BASE_URL PORT
 
-envsubst '${API_HOSTPORT} ${PORT}' \
+envsubst '${API_BASE_URL} ${PORT}' \
     < /etc/nginx/nginx.conf.template > /tmp/nginx.conf
 
 exec nginx -c /tmp/nginx.conf -g 'daemon off;'
