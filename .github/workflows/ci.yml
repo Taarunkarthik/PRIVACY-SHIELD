@@ -139,6 +139,7 @@ jobs:
               "READER_PASSWORD": target_passwords["reader"],
               "TEST_TARGET_SCANNER_PASSWORD": target_passwords["scanner"],
               "TEST_TARGET_DEPLOYER_PASSWORD": target_passwords["deployer"],
+              "TEST_TARGET_READER_PASSWORD": target_passwords["reader"],
               "TEST_TARGET_SUPERUSER_PASSWORD": target_passwords["superuser"],
           }
           with Path(os.environ["GITHUB_ENV"]).open("a", encoding="utf-8") as stream:

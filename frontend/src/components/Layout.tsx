@@ -5,13 +5,18 @@ import { useAuth } from '../api/auth';
 import { Brand } from './Brand';
 import { navigation } from '../routes/navigation';
 
+// Routes reachable from in-page links but not shown in the primary navigation.
+const secondaryTitles: Record<string, string> = { '/deployments': 'Deployments' };
+
 export function Layout() {
   const { user, logout } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [error, setError] = useState('');
   const location = useLocation();
-  const title = navigation.find((item) => item.path === location.pathname)?.label ?? 'Page not found';
+  const title = navigation.find((item) => item.path === location.pathname)?.label
+    ?? secondaryTitles[location.pathname]
+    ?? 'Page not found';
 
   useEffect(() => {
     document.title = `${title} · PrivacyShield`;

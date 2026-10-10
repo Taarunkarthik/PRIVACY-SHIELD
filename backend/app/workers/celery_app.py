@@ -36,6 +36,10 @@ celery_app.conf.update(
             "task": "privacyshield.dispatch_classifications",
             "schedule": 15.0,
         },
+        "dispatch-deployments": {
+            "task": "privacyshield.dispatch_deployments",
+            "schedule": 15.0,
+        },
     },
 )
 
@@ -89,3 +93,24 @@ def dispatch_classifications() -> None:
     from app.services.classification.jobs import dispatch_classification_jobs
 
     dispatch_classification_jobs()
+
+
+@celery_app.task(
+    name="privacyshield.deploy", ignore_result=True, soft_time_limit=120, time_limit=150
+)
+def deploy(deployment_id: str) -> None:
+    from app.services.policies.execution import run_deployment
+
+    try:
+        run_deployment(UUID(deployment_id))
+    except Exception:
+        logging.getLogger("privacyshield").error(
+            "Deployment interrupted; reconciliation pending"
+        )
+
+
+@celery_app.task(name="privacyshield.dispatch_deployments", ignore_result=True)
+def dispatch_deployments() -> None:
+    from app.services.policies.jobs import dispatch_deployments
+
+    dispatch_deployments()

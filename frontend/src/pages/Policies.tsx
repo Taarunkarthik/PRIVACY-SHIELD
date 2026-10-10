@@ -1,0 +1,276 @@
+import { useEffect, useState } from 'react';
+import { Link, useSearchParams } from 'react-router';
+import { ArrowRight, Check, ChevronLeft, ChevronRight, Eye, FileClock, Play, Plus, RefreshCw, Send, ShieldCheck, X } from 'lucide-react';
+import { api, ApiError } from '../api/client';
+import { useAuth } from '../api/auth';
+import type { Connection, SchemaSnapshot } from '../api/connections';
+import type { Policy, PolicyPage, PolicyPreview, PolicyAction } from '../api/policies';
+import { actionLabel, policyStatusLabel } from '../api/policies';
+
+const ACTIONS: PolicyAction[] = ['KEEP', 'REDACT', 'PARTIAL', 'PSEUDONYMIZE', 'NULLIFY', 'RESTRICT'];
+
+export function Policies() {
+  const { user } = useAuth();
+  const canManage = user?.role === 'ADMIN' || user?.role === 'ANALYST';
+  const canApprove = user?.role === 'ADMIN';
+  const [params, setParams] = useSearchParams();
+  const [connections, setConnections] = useState<Connection[]>([]);
+  const [connectionsLoading, setConnectionsLoading] = useState(true);
+  const [connectionError, setConnectionError] = useState('');
+  const [policies, setPolicies] = useState<PolicyPage | null>(null);
+  const [policiesLoading, setPoliciesLoading] = useState(true);
+  const [policiesError, setPoliciesError] = useState('');
+  const [page, setPage] = useState(1);
+  const [revision, setRevision] = useState(0);
+  const [showCreate, setShowCreate] = useState(false);
+  const [actionError, setActionError] = useState('');
+  const [previewError, setPreviewError] = useState('');
+  const [createError, setCreateError] = useState('');
+  const [actionLoading, setActionLoading] = useState('');
+  const [preview, setPreview] = useState<PolicyPreview | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const connectionId = params.get('connection') || connections.find((c) => c.is_active)?.id || connections[0]?.id || '';
+  const connection = connections.find((c) => c.id === connectionId);
+  const selectedId = params.get('policy') || policies?.items[0]?.id || '';
+  const selected = policies?.items.find((p) => p.id === selectedId) || null;
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setConnectionsLoading(true);
+    setConnectionError('');
+    async function load() {
+      const first = await api<ConnectionPage>('/connections?page=1&page_size=100', { signal: controller.signal });
+      const all = [...first.items];
+      for (let p = 2; p <= Math.ceil(first.total / 100); p++) {
+        const next = await api<ConnectionPage>(`/connections?page=${p}&page_size=100`, { signal: controller.signal });
+        all.push(...next.items);
+      }
+      if (!controller.signal.aborted) setConnections(all);
+    }
+    load().catch((r: unknown) => { if (!controller.signal.aborted) setConnectionError(r instanceof ApiError ? r.message : 'Could not load connections.'); })
+      .finally(() => { if (!controller.signal.aborted) setConnectionsLoading(false); });
+    return () => controller.abort();
+  }, [revision]);
+
+  useEffect(() => {
+    if (!connectionId) { setPolicies(null); setPoliciesLoading(false); return; }
+    const controller = new AbortController();
+    setPoliciesLoading(true);
+    setPoliciesError('');
+    api<PolicyPage>(`/policies?connection_id=${encodeURIComponent(connectionId)}&page=${page}&page_size=10`, { signal: controller.signal })
+      .then((v) => { if (!controller.signal.aborted) setPolicies(v); })
+      .catch((r: unknown) => { if (!controller.signal.aborted) setPoliciesError(r instanceof ApiError ? r.message : 'Could not load policies.'); })
+      .finally(() => { if (!controller.signal.aborted) setPoliciesLoading(false); });
+    return () => controller.abort();
+  }, [connectionId, page, revision]);
+
+  async function submitPolicy(id: string) {
+    setActionLoading(id); setActionError('');
+    try {
+      await api(`/policies/${encodeURIComponent(id)}/submit`, { method: 'POST', csrfToken: user!.csrf_token });
+      setRevision((v) => v + 1);
+    } catch (r) { setActionError(r instanceof ApiError ? r.message : 'Could not submit policy.'); }
+    finally { setActionLoading(''); }
+  }
+
+  async function approvePolicy(id: string) {
+    setActionLoading(id); setActionError('');
+    try {
+      await api(`/policies/${encodeURIComponent(id)}/approve`, { method: 'POST', csrfToken: user!.csrf_token });
+      setRevision((v) => v + 1);
+    } catch (r) { setActionError(r instanceof ApiError ? r.message : 'Could not approve policy.'); }
+    finally { setActionLoading(''); }
+  }
+
+  async function rejectPolicy(id: string) {
+    setActionLoading(id); setActionError('');
+    try {
+      await api(`/policies/${encodeURIComponent(id)}/reject`, { method: 'POST', csrfToken: user!.csrf_token });
+      setRevision((v) => v + 1);
+    } catch (r) { setActionError(r instanceof ApiError ? r.message : 'Could not reject policy.'); }
+    finally { setActionLoading(''); }
+  }
+
+  async function deployPolicy(id: string) {
+    setActionLoading(id); setActionError('');
+    try {
+      await api(`/policies/${encodeURIComponent(id)}/deploy`, { method: 'POST', csrfToken: user!.csrf_token, body: '{}' });
+      setRevision((v) => v + 1);
+    } catch (r) { setActionError(r instanceof ApiError ? r.message : 'Could not deploy policy.'); }
+    finally { setActionLoading(''); }
+  }
+
+  async function loadPreview(id: string) {
+    setPreviewLoading(true); setPreviewError(''); setPreview(null);
+    try {
+      const v = await api<PolicyPreview>(`/policies/${encodeURIComponent(id)}/preview`);
+      setPreview(v);
+    } catch (r) { setPreviewError(r instanceof ApiError ? r.message : 'Could not load preview.'); }
+    finally { setPreviewLoading(false); }
+  }
+
+  return <div className="page-content policies-page">
+    <div className="page-heading">
+      <div><p className="eyebrow">PROTECTION WITH PURPOSE</p><h1>Masking Policies<span className="heading-dot">.</span></h1><p className="page-description">Create, preview, approve, and deploy data protection policies.</p></div>
+      <div className="heading-actions">
+        {canManage && connection && <button className="button primary" onClick={() => setShowCreate(true)}><Plus size={15} /> New policy</button>}
+        <Link className="button secondary" to="/deployments"><FileClock size={15} /> Deployments</Link>
+        <button className="button secondary" onClick={() => setRevision((v) => v + 1)} disabled={policiesLoading || connectionsLoading}><RefreshCw size={15} /> Refresh</button>
+      </div>
+    </div>
+
+    {(connectionError || policiesError || actionError || previewError || createError) && <div className="error-box" role="alert">{connectionError || policiesError || actionError || previewError || createError}</div>}
+
+    {!connectionsLoading && !connection && <section className="panel data-empty"><ShieldCheck size={34} strokeWidth={1.3} /><h2>No connections available</h2><p>Connect a database to start creating masking policies.</p><Link to="/connections" className="button secondary">View connections <ArrowRight size={14} /></Link></section>}
+
+    {connection && <>
+      <section className="panel policy-list" aria-label="Policies">
+        <div className="panel-heading"><div><h2>Policies <span className="count-badge">{policies?.total ?? '—'}</span></h2><p>Protection policies for {connection.name}.</p></div><ShieldCheck size={19} className="muted" /></div>
+        {policiesLoading && !policies ? <div className="data-empty" role="status"><div className="loading-ring" /><p>Loading policies…</p></div>
+          : policies && !policies.total ? <div className="data-empty"><ShieldCheck size={34} strokeWidth={1.3} /><h3>No policies yet</h3><p>{canManage ? 'Create your first masking policy to protect sensitive data.' : 'Policies will appear here once an administrator or analyst creates one.'}</p></div>
+          : <div className="policy-items">{policies?.items.map((item) => (
+            <button type="button" className={`policy-row ${selectedId === item.id ? 'selected' : ''}`} key={item.id} onClick={() => setParams({ connection: connectionId, policy: item.id })} aria-pressed={selectedId === item.id}>
+              <span className="policy-icon"><ShieldCheck size={17} /></span>
+              <span className="policy-info"><strong>{item.schema_name}.{item.table_name}</strong><small>v{item.version} · {item.rules.length} rules · {new Date(item.created_at).toLocaleDateString()}</small></span>
+              <span className={`pill policy-status status-${item.status.toLowerCase().replace('_', '-')}`}>{policyStatusLabel[item.status]}</span>
+              <ChevronRight size={15} />
+            </button>))}</div>}
+        {policies && policies.total > 10 && <div className="pagination"><span>Page {page} of {Math.ceil(policies.total / 10)}</span><div><button className="button secondary" disabled={page === 1 || policiesLoading} onClick={() => setPage(page - 1)}><ChevronLeft size={13} /> Previous</button><button className="button secondary" disabled={page * 10 >= policies.total || policiesLoading} onClick={() => setPage(page + 1)}>Next <ChevronRight size={13} /></button></div></div>}
+      </section>
+
+      {selected && <section className="panel policy-detail" aria-label="Selected policy">
+        <div className="panel-heading">
+          <div><h2>{selected.schema_name}.{selected.table_name} <span className="count-badge">v{selected.version}</span></h2><p>Created {new Date(selected.created_at).toLocaleString()}</p></div>
+          <span className={`pill policy-status status-${selected.status.toLowerCase().replace('_', '-')}`}>{policyStatusLabel[selected.status]}</span>
+        </div>
+
+        <div className="policy-rules">
+          <h3>Protection rules</h3>
+          <div className="rules-table">
+            <div className="rules-header"><span>Column</span><span>Action</span><span>Domain</span></div>
+            {selected.rules.map((rule) => (
+              <div className="rules-row" key={rule.column_name}>
+                <span className="rule-column">{rule.column_name}</span>
+                <span className={`pill action-${rule.action.toLowerCase()}`}>{actionLabel[rule.action]}</span>
+                <span className="rule-domain">{rule.pseudonym_domain || '—'}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="policy-actions">
+          {canManage && selected.status === 'DRAFT' && <button className="button primary" disabled={actionLoading === selected.id} onClick={() => submitPolicy(selected.id)}><Send size={15} />{actionLoading === selected.id ? 'Submitting…' : 'Submit for approval'}</button>}
+          {canApprove && selected.status === 'PENDING_APPROVAL' && <>
+            <button className="button primary" disabled={actionLoading === selected.id} onClick={() => approvePolicy(selected.id)}><Check size={15} />{actionLoading === selected.id ? 'Approving…' : 'Approve'}</button>
+            <button className="button danger" disabled={actionLoading === selected.id} onClick={() => rejectPolicy(selected.id)}><X size={15} />{actionLoading === selected.id ? 'Rejecting…' : 'Reject'}</button>
+          </>}
+          {canApprove && (selected.status === 'APPROVED' || selected.status === 'FAILED') && <button className="button primary" disabled={actionLoading === selected.id} onClick={() => deployPolicy(selected.id)}><Play size={15} />{actionLoading === selected.id ? 'Deploying…' : 'Deploy'}</button>}
+          <button className="button secondary" disabled={previewLoading} onClick={() => loadPreview(selected.id)}><Eye size={15} />{previewLoading ? 'Loading…' : 'Preview'}</button>
+        </div>
+      </section>}
+
+      {preview && <section className="panel policy-preview" aria-label="Policy preview">
+        <div className="panel-heading"><div><h2>Preview: {preview.view_schema}.{preview.view_name}</h2><p>Security-barrier view with {preview.columns.length} columns.</p></div><Eye size={19} className="muted" /></div>
+        <div className="preview-columns">
+          {preview.columns.map((col) => (
+            <div className="preview-column" key={col.name}>
+              <span className="preview-col-name">{col.name}</span>
+              <span className="preview-col-type">{col.data_type}</span>
+              <span className={`pill action-${col.action.toLowerCase()}`}>{actionLabel[col.action]}</span>
+            </div>
+          ))}
+        </div>
+        <details className="preview-sql"><summary>View SQL</summary><pre>{preview.sql}</pre></details>
+      </section>}
+    </>}
+
+    {showCreate && <CreatePolicyDialog connectionId={connectionId} onClose={() => setShowCreate(false)} onError={setCreateError} onCreated={(id) => { setShowCreate(false); setParams({ connection: connectionId, policy: id }); setRevision((v) => v + 1); }} />}
+  </div>;
+}
+
+function CreatePolicyDialog({ connectionId, onClose, onError, onCreated }: { connectionId: string; onClose: () => void; onError: (msg: string) => void; onCreated: (id: string) => void }) {
+  const { user } = useAuth();
+  const [snapshot, setSnapshot] = useState<SchemaSnapshot | null>(null);
+  const [snapshotLoading, setSnapshotLoading] = useState(true);
+  const [selectedTable, setSelectedTable] = useState('');
+  const [rules, setRules] = useState<Record<string, PolicyAction>>({});
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setSnapshotLoading(true);
+    api<SchemaSnapshot>(`/connections/${encodeURIComponent(connectionId)}/schema`, { signal: controller.signal })
+      .then((v) => { if (!controller.signal.aborted) setSnapshot(v); })
+      .catch(() => {})
+      .finally(() => { if (!controller.signal.aborted) setSnapshotLoading(false); });
+    return () => controller.abort();
+  }, [connectionId]);
+
+  const table = snapshot?.catalog.tables.find((t) => t.name === selectedTable);
+
+  function toggleRule(column: string, action: PolicyAction) {
+    setRules((prev) => {
+      const next = { ...prev };
+      if (next[column] === action) delete next[column];
+      else next[column] = action;
+      return next;
+    });
+  }
+
+  async function create() {
+    if (!table || !user) return;
+    setLoading(true);
+    try {
+      const created = await api<Policy>('/policies', {
+        method: 'POST',
+        csrfToken: user.csrf_token,
+        body: JSON.stringify({
+          connection_id: connectionId,
+          schema_name: table.schema,
+          table_name: table.name,
+          snapshot_id: snapshot!.snapshot_id,
+          rules: Object.entries(rules).map(([column_name, action]) => ({ column_name, action })),
+        }),
+      });
+      onCreated(created.id);
+    } catch (r) { onError(r instanceof ApiError ? r.message : 'Could not create policy.'); }
+    finally { setLoading(false); }
+  }
+
+  return <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="Create policy">
+    <div className="modal-panel">
+      <div className="modal-header"><h2>New masking policy</h2><button className="text-button" onClick={onClose}>Cancel</button></div>
+      {snapshotLoading ? <div className="data-empty" role="status"><div className="loading-ring" /><p>Loading schema…</p></div>
+        : !snapshot ? <div className="data-empty"><p>No schema snapshot found. Discover the schema first.</p></div>
+        : <>
+          <div className="form-field"><label htmlFor="policy-table">Table</label>
+            <select id="policy-table" value={selectedTable} onChange={(e) => { setSelectedTable(e.target.value); setRules({}); }}>
+              <option value="">Choose a table</option>
+              {snapshot.catalog.tables.map((t) => <option key={t.name} value={t.name}>{t.schema}.{t.name}</option>)}
+            </select>
+          </div>
+          {table && <div className="rules-editor">
+            <p className="rules-editor-note">Choose a protection action for each column. Unselected columns become NULL.</p>
+            <div className="rules-editor-list">
+              {table.columns.map((col) => (
+                <div className="rules-editor-row" key={col.name}>
+                  <span className="rules-editor-col">{col.name} <small>{col.data_type}</small></span>
+                  <div className="rules-editor-actions">
+                    {ACTIONS.map((action) => (
+                      <button key={action} type="button" className={`rules-editor-action ${rules[col.name] === action ? 'active' : ''}`} onClick={() => toggleRule(col.name, action)}>{actionLabel[action]}</button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>}
+          <div className="modal-actions">
+            <button className="button secondary" onClick={onClose}>Cancel</button>
+            <button className="button primary" disabled={!table || loading || Object.keys(rules).length === 0} onClick={create}>{loading ? 'Creating…' : 'Create policy'}</button>
+          </div>
+        </>}
+    </div>
+  </div>;
+}
+
+interface ConnectionPage { items: Connection[]; total: number; page: number; page_size: number }

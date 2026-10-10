@@ -20,6 +20,10 @@ function mockApi(initiallySignedIn = false) {
       return new Response(null, { status: 204 });
     }
     if (path === '/api/v1/dashboard/summary') return json(totals);
+    if (path.startsWith('/api/v1/policies')) return json({ items: [], total: 0, page: 1, page_size: 20 });
+    if (path.startsWith('/api/v1/connections')) return json({ items: [], total: 0, page: 1, page_size: 100 });
+    if (path.startsWith('/api/v1/audit-events')) return json({ items: [], total: 0, page: 1, page_size: 50 });
+    if (path.startsWith('/api/v1/deployments')) return json({ items: [], total: 0, page: 1, page_size: 20 });
     throw new Error(`Unexpected test endpoint: ${path}`);
   });
   vi.stubGlobal('fetch', fetchMock);
@@ -110,9 +114,8 @@ describe('dashboard and navigation', () => {
     const nav = await screen.findByRole('navigation', { name: 'Main navigation' });
     expect(nav.querySelectorAll('a')).toHaveLength(9);
     await visitor.click(screen.getByRole('link', { name: 'Masking Policies' }));
-    expect(await screen.findByRole('heading', { name: 'Define the right protection' })).toBeInTheDocument();
-    expect(screen.getByText('Coming in a later phase')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /deploy/i })).not.toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /Masking Policies/ })).toBeInTheDocument();
+    expect(screen.getByText(/Create, preview, approve, and deploy/)).toBeInTheDocument();
   });
 
   it('distinguishes missing metrics from an empty workspace after a dashboard failure', async () => {

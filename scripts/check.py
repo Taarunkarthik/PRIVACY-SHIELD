@@ -57,6 +57,7 @@ def main() -> None:
                    CELERY_QUEUE="privacyshield-check-" + uuid.uuid4().hex,
                    TEST_TARGET_SCANNER_PASSWORD=config["SCANNER_PASSWORD"],
                    TEST_TARGET_DEPLOYER_PASSWORD=config["DEPLOYER_PASSWORD"],
+                   TEST_TARGET_READER_PASSWORD=config["READER_PASSWORD"],
                    TEST_TARGET_SUPERUSER_PASSWORD=config["TARGET_POSTGRES_PASSWORD"])
         ollama_name = "privacyshield-check-ollama-" + uuid.uuid4().hex[:12]
         env["OLLAMA_BASE_URL"] = f"http://{ollama_name}:11434"
@@ -64,7 +65,8 @@ def main() -> None:
         test_env_names = ["DATABASE_URL", "MIGRATION_DATABASE_URL", "TARGET_ALLOWED_HOSTS",
                           "CELERY_QUEUE", "OLLAMA_BASE_URL", "TEST_OLLAMA_BASE_URL",
                           "TEST_TARGET_HOST", "TEST_TARGET_PORT", "TEST_TARGET_SCANNER_PASSWORD",
-                          "TEST_TARGET_DEPLOYER_PASSWORD", "TEST_TARGET_SUPERUSER_PASSWORD"]
+                          "TEST_TARGET_DEPLOYER_PASSWORD", "TEST_TARGET_READER_PASSWORD",
+                          "TEST_TARGET_SUPERUSER_PASSWORD"]
         isolated = compose + ["run", "--rm", "-T", "--no-deps"]
         for name in test_env_names:
             isolated.extend(["-e", name])

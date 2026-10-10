@@ -6,9 +6,9 @@ PrivacyShield is a PostgreSQL privacy platform being built in seven tested phase
 
 ## Current delivery
 
-Phases 1–3 provide the control-plane schema, authenticated API, React dashboard, Docker topology, synthetic target database, encrypted connection management, schema discovery, and asynchronous PII scanning. All three phases passed local acceptance and GitHub delivery verification. Phase 4 adds local AI recommendations and has passed its real-model, worker and browser acceptance checks; GitHub delivery verification is pending. Policy enforcement remains a later phase. Pages for unavailable capabilities say so; demonstration counts must never be presented as scanned findings.
+Phases 1–4 provide the control-plane schema, authenticated API, React dashboard, Docker topology, synthetic target database, encrypted connection management, schema discovery, asynchronous PII scanning, and local AI recommendations. All four passed local acceptance and GitHub delivery verification. Phase 5 adds masking policies, human approval, and deployment of security-barrier views; it is in progress and its gate is not yet claimed. Pages for unavailable capabilities say so; demonstration counts must never be presented as scanned findings.
 
-Phases 1–3 are delivered: local checks, real browser workflows, remote commit confirmation, and GitHub Actions passed. The latest verified commit is [`7df4a37`](https://github.com/Taarunkarthik/PRIVACY-SHIELD/commit/7df4a373e0825064731f50857203af9bf2c55c7b). See [Phase 3 verification evidence](docs/verification-phase3.md) and [the delivery roadmap](docs/roadmap.md) for current status.
+The latest verified commit is [`efb88a1`](https://github.com/Taarunkarthik/PRIVACY-SHIELD/commit/efb88a1e806d05c0409a48c9a70f83af228fbba9). See [Phase 4 verification evidence](docs/verification-phase4.md) and [the delivery roadmap](docs/roadmap.md) for current status.
 
 The submission target is **12 October 2026**, with working code and a reproducible demonstration. The seven phase gates remain in place within the three-day work window; the schedule is a target, not a guarantee of completion.
 
@@ -89,11 +89,13 @@ The backend is a FastAPI modular monolith shared by API and Celery processes. A 
 - [Connection and discovery contract](docs/discovery.md)
 - [Bounded PII scanning and demo](docs/scanning.md)
 - [Local AI classification and actual model checks](docs/classification.md)
+- [Masking policies, approval, and deployment](docs/masking.md)
 - [Setup, testing, demo, and troubleshooting](docs/operations.md)
 - [Phase 1 verification evidence and limitations](docs/verification.md)
 - [Phase 2 verification evidence](docs/verification-phase2.md)
 - [Phase 3 verification evidence](docs/verification-phase3.md)
 - [Phase 4 verification evidence](docs/verification-phase4.md)
+- [Phase 5 verification evidence](docs/verification-phase5.md)
 
 ## Security and delivery rules
 

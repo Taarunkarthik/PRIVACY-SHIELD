@@ -1,6 +1,6 @@
 # Delivery roadmap
 
-Each phase is gated on relevant tests, a reviewed commit, a successful push to `dev/privacyshield`, and remote-SHA confirmation. Phases 1–3 are **complete**, including real services, browser review, remote commit verification, and passing GitHub Actions. Phase 4 is in progress; Phases 5–7 have not started. See the phase verification records for evidence and limitations.
+Each phase is gated on relevant tests, a reviewed commit, a successful push to `dev/privacyshield`, and remote-SHA confirmation. Phases 1–4 are **complete**, including real services, browser review, remote commit verification, and passing GitHub Actions. Phase 5 is in progress; Phases 6–7 have not started. See the phase verification records for evidence and limitations.
 
 ## Three-day submission target
 
@@ -19,8 +19,8 @@ The target submission date is **12 October 2026**. Deliverables are the reposito
 | 1 — Foundation | Monorepo, Compose, normalized models/migrations, authentication/RBAC, dashboard shell, synthetic target, CI | Clean startup; migration; login/logout/CSRF; protected endpoints; frontend tests/build; separate real Celery worker smoke | Complete — `4f1efd2`, CI passed |
 | 2 — Discovery | Encrypted connection management; least-privilege provisioning; catalog discovery; Schema Explorer | Discover tables, PK/FK and composite relationships; reject scanner writes; redact credentials | Complete — `c0c0100`, CI passed |
 | 3 — Scanning | Presidio and Indian candidate recognizers; bounded JSONB/text sampling; async jobs; results | Real async scan detects synthetic scalar/JSONB/text fixtures; enforce sampling/timeouts; no retained raw samples | Complete; pushed and CI passed |
-| 4 — Classification | Ollama adapter; structured response validation; classifications UI/evaluation | Real `qwen2.5:1.5b` smoke; reject malformed/unknown fields and injection attempts; manual review during outages | Local gate passed; GitHub delivery pending |
-| 5 — Masking and Approval | Compiler, previews, immutable policy versions, approval, deployment/reconciliation | Reader sees approved views only; unchanged source data; idempotent deployment; schema drift blocks deployment | Not started |
+| 4 — Classification | Ollama adapter; structured response validation; classifications UI/evaluation | Real `qwen2.5:1.5b` smoke; reject malformed/unknown fields and injection attempts; manual review during outages | Complete — `efb88a1`, CI passed |
+| 5 — Masking and Approval | Compiler, previews, immutable policy versions, approval, deployment/reconciliation | Reader sees approved views only; unchanged source data; idempotent deployment; schema drift blocks deployment | Local gate passed; GitHub delivery pending |
 | 6 — Security and Audit | Permissions matrix; audit timeline; operator settings/custom patterns; redaction; concurrency/recovery | Audit immutability; bounded custom-pattern configuration; stale/concurrent decisions; inherited privilege checks; interruption and uncertain-outcome recovery | Not started |
 | 7 — Readiness | Browser workflow tests; measured benchmarks; observability; deployment/demo docs | Clean-install full workflow; published measured limitations and repeatable commands | Not started |
 
