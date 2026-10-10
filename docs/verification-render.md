@@ -54,6 +54,11 @@ owner with a logged warning (recorded as a limitation).
   on `dev/privacyshield`; the remote SHA matched the local commit.
 - [GitHub Actions run `38074879168`](https://github.com/Taarunkarthik/PRIVACY-SHIELD/actions/runs/38074879168)
   passed: backend (real PostgreSQL/target/Redis/worker) and frontend jobs.
+- A concurrent commit on the branch (`c7553a3`, a root Dockerfile) referenced
+  the renamed `frontend/nginx.conf`; it was reconciled by rebase (no
+  force-push) and repaired to use the templated config. Final verified HEAD is
+  [`b629518`](https://github.com/Taarunkarthik/PRIVACY-SHIELD/commit/b629518c5770cee3a8bcd858d2db68f68277ff69);
+  [run `38075060446`](https://github.com/Taarunkarthik/PRIVACY-SHIELD/actions/runs/38075060446) passed.
 
 ## Limitations
 
