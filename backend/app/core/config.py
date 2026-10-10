@@ -1,8 +1,10 @@
+import json
 from functools import lru_cache
+from typing import Annotated
 
 from cryptography.fernet import Fernet
 from pydantic import Field, SecretStr, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 from sqlalchemy.engine import make_url
 
 
@@ -19,7 +21,13 @@ class Settings(BaseSettings):
     ollama_model: str = Field(default="qwen2.5:1.5b", min_length=1, max_length=120)
     credential_encryption_key: SecretStr
     allowed_origins: list[str] = Field(default_factory=lambda: ["http://localhost:8080"])
-    target_allowed_hosts: list[str] = Field(default_factory=lambda: ["target-db"])
+    # A single deployment origin (e.g. a Render frontend URL) merged with allowed_origins.
+    frontend_origin: str | None = None
+    # Accepts a JSON array or a comma-separated host list so hosted platforms can
+    # inject a single database hostname from a managed instance.
+    target_allowed_hosts: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: ["target-db"]
+    )
     cookie_secure: bool = False
     session_hours: int = Field(default=8, ge=1, le=24)
     login_attempt_limit: int = Field(default=10, ge=1, le=100)
@@ -55,6 +63,25 @@ class Settings(BaseSettings):
             raise ValueError("Specify explicit HTTP(S) origins without trailing slashes")
         return values
 
+    @field_validator("frontend_origin")
+    @classmethod
+    def valid_frontend_origin(cls, value: str | None) -> str | None:
+        if value is not None and (
+            not value.startswith(("http://", "https://")) or value.endswith("/")
+        ):
+            raise ValueError("FRONTEND_ORIGIN must be an http(s) origin without a trailing slash")
+        return value
+
+    @field_validator("target_allowed_hosts", mode="before")
+    @classmethod
+    def parse_target_hosts(cls, value: object) -> object:
+        if isinstance(value, str):
+            text = value.strip()
+            if text.startswith("["):
+                return json.loads(text)
+            return [part.strip() for part in text.split(",") if part.strip()]
+        return value
+
     @field_validator("target_allowed_hosts")
     @classmethod
     def exact_target_hosts(cls, values: list[str]) -> list[str]:
@@ -63,6 +90,12 @@ class Settings(BaseSettings):
         if not values:
             raise ValueError("At least one explicit target host is required")
         return sorted({normalize_host(value) for value in values})
+
+    @property
+    def origins(self) -> list[str]:
+        """Effective CSRF/CORS origin allow list, including an optional deployment origin."""
+        extra = [self.frontend_origin] if self.frontend_origin else []
+        return list(dict.fromkeys([*self.allowed_origins, *extra]))
 
 
 @lru_cache

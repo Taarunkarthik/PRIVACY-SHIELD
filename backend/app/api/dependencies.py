@@ -1,5 +1,6 @@
 import hmac
 from datetime import UTC, datetime
+from urllib.parse import urlsplit
 
 from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy import select
@@ -13,8 +14,18 @@ from app.models import User, UserSession
 
 def verify_origin(request: Request) -> None:
     origin = request.headers.get("origin")
-    if origin and origin not in get_settings().allowed_origins:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Origin is not allowed")
+    if not origin:
+        return
+    if origin in get_settings().origins:
+        return
+    # Same-origin deployments behind a reverse proxy (for example a hosted
+    # frontend that serves the SPA and proxies /api) present an Origin whose
+    # host equals the request Host. This is the browser's own same-origin
+    # check, not a relaxation to arbitrary cross-origin callers.
+    host = request.headers.get("host", "")
+    if host and urlsplit(origin).netloc == host:
+        return
+    raise HTTPException(status.HTTP_403_FORBIDDEN, "Origin is not allowed")
 
 
 def current_user(request: Request, db: Session = Depends(get_db)) -> User:

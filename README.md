@@ -37,6 +37,10 @@ docker compose exec api python -m app.cli create-admin --email admin@example.com
 
 Enter a strong unique password at the hidden prompt, then open [the local dashboard](http://localhost:8080). There is no committed default administrator password. Authentication uses server-side sessions and CSRF protection.
 
+**Hosted option:** the repository includes a Render Blueprint (`render.yaml`) that
+deploys the full stack (API, Celery worker, nginx frontend, Redis, and two
+Postgres databases). See [Deploying on Render](docs/deploy-render.md).
+
 **Windows storage:** use Docker Desktop's supported storage controls to locate Linux disk images and named volumes on D: before the first build. Preserve existing Docker data. Do not move, delete, or unregister Docker/WSL distributions manually. See [operations and troubleshooting](docs/operations.md).
 
 ## Verification
@@ -90,6 +94,8 @@ The backend is a FastAPI modular monolith shared by API and Celery processes. A 
 - [Bounded PII scanning and demo](docs/scanning.md)
 - [Local AI classification and actual model checks](docs/classification.md)
 - [Masking policies, approval, and deployment](docs/masking.md)
+- [Deploying on Render](docs/deploy-render.md)
+- [Render deployment verification](docs/verification-render.md)
 - [Setup, testing, demo, and troubleshooting](docs/operations.md)
 - [Phase 1 verification evidence and limitations](docs/verification.md)
 - [Phase 2 verification evidence](docs/verification-phase2.md)
