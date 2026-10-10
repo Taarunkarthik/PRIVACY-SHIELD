@@ -1,10 +1,10 @@
 #!/bin/sh
 # Render the nginx config from the template with deployment-provided values.
-# Render supplies API_HOSTPORT through the Blueprint. Keep local Compose
-# behavior explicit without silently hiding a broken hosted configuration.
+# Render supplies API_HOSTPORT through the Blueprint. The fallback supports an
+# existing service created manually before the Blueprint was synced.
 set -eu
 
-: "${API_HOSTPORT:?API_HOSTPORT must be configured as host:port}"
+: "${API_HOSTPORT:=privacyshield-api:10000}"
 : "${PORT:=8080}"
 export API_HOSTPORT PORT
 
