@@ -115,13 +115,8 @@ services:
     dockerContext: ./frontend
     healthCheckPath: /health
     envVars:
-      - key: API_HOST
+      - key: API_HOSTPORT
         fromService:
           type: web
           name: privacyshield-api
-          property: host
-      - key: API_PORT
-        fromService:
-          type: web
-          name: privacyshield-api
-          property: port
+          property: hostport

@@ -20,7 +20,7 @@ http {
         listen ${PORT};
         root /usr/share/nginx/html;
         index index.html;
-        set $api_upstream http://${API_HOST}:${API_PORT};
+        set $api_upstream http://${API_HOSTPORT};
         add_header X-Content-Type-Options nosniff always;
         add_header X-Frame-Options DENY always;
         add_header Referrer-Policy no-referrer always;
