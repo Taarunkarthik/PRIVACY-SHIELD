@@ -2,6 +2,7 @@
 
 Only this module's category/score mapping crosses the detector boundary. Presidio
 spans and spaCy documents remain transient, and no input or decision trace is logged.
+Optional operator patterns contribute only fixed ``CUSTOM_*`` labels.
 """
 
 import logging
@@ -25,6 +26,14 @@ ALLOWED_CATEGORIES = frozenset(
 )
 _PRESIDIO_CATEGORIES = sorted(ALLOWED_CATEGORIES - {"BANK_ACCOUNT"})
 _EMPTY_VALUES = {"unknown", "none", "null", "n/a", "not available", "redacted"}
+
+# Operator-supplied patterns are compiled once per scan and capped. Their matches
+# use a fixed, bounded label namespace so no operator string becomes a category.
+CUSTOM_PATTERN_LIMIT = 20
+CUSTOM_PATTERN_SCORE = 0.7
+CUSTOM_PATTERN_CATEGORIES = frozenset({"PII", "FINANCIAL", "HEALTH", "OTHER"})
+_CUSTOM_LABEL_PREFIX = "CUSTOM_"
+
 
 
 @lru_cache(maxsize=1)
@@ -142,11 +151,45 @@ def _metadata_candidates(value: str, context: list[str]) -> dict[str, float]:
     return hints
 
 
-def detect_pii(value: str, column_name: str = "") -> dict[str, float]:
+def compile_custom_patterns(
+    patterns: list[tuple[str, str, str]] | tuple[tuple[str, str, str], ...],
+) -> tuple[tuple[str, re.Pattern[str]], ...]:
+    """Compile at most ``CUSTOM_PATTERN_LIMIT`` enabled operator patterns once per scan.
+
+    ``patterns`` yields ``(name, category, regex)``. Invalid categories and regexes
+    are skipped; no pattern text, name, or source value is ever logged or retained.
+    Returns ``(label, compiled)`` pairs for ``detect_pii``.
+    """
+    compiled: list[tuple[str, re.Pattern[str]]] = []
+    for pattern in patterns:
+        if len(compiled) >= CUSTOM_PATTERN_LIMIT:
+            break
+        try:
+            category = pattern[1]
+            regex = pattern[2]
+        except (IndexError, TypeError):
+            continue
+        if category not in CUSTOM_PATTERN_CATEGORIES or not isinstance(regex, str):
+            continue
+        try:
+            compiled.append((_CUSTOM_LABEL_PREFIX + category, re.compile(regex)))
+        except re.error:
+            continue
+    return tuple(compiled)
+
+
+def detect_pii(
+    value: str,
+    column_name: str = "",
+    *,
+    patterns: tuple[tuple[str, re.Pattern[str]], ...] = (),
+) -> dict[str, float]:
     """Detect candidates in at most 4,096 characters using the local CPU model.
 
     Column names/JSON paths supply bounded context, never executable instructions.
     The caller must report sampling/truncation limits; absence is not proof of no PII.
+    Optional precompiled operator ``patterns`` augment the heuristics; an empty set
+    preserves the built-in behaviour exactly.
     """
     if not isinstance(value, str) or not isinstance(column_name, str):
         raise TypeError("PII detector accepts text and a column name")
@@ -168,4 +211,7 @@ def detect_pii(value: str, column_name: str = "") -> dict[str, float]:
             categories[result.entity_type] = max(
                 categories.get(result.entity_type, 0.0), round(float(result.score), 4)
             )
+    for label, pattern in patterns[:CUSTOM_PATTERN_LIMIT]:
+        if pattern.search(bounded):
+            categories[label] = max(categories.get(label, 0.0), CUSTOM_PATTERN_SCORE)
     return dict(sorted(categories.items()))

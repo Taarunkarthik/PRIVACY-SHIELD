@@ -70,10 +70,12 @@ SAFE_JSON_KEYS = {
 }
 
 
-def detect_text(value: str, context: str) -> dict[str, float]:
+def detect_text(
+    value: str, context: str, *, patterns: tuple = ()
+) -> dict[str, float]:
     from app.services.scanning.detection import detect_pii
 
-    return detect_pii(value[:MAX_CELL_CHARS], column_name=context)
+    return detect_pii(value[:MAX_CELL_CHARS], column_name=context, patterns=patterns)
 
 
 def safe_key(key: str) -> str:

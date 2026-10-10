@@ -4,6 +4,7 @@ The control plane never stores source values. Compilation reads only the saved
 catalog snapshot and the policy's own rules.
 """
 
+from datetime import datetime
 from uuid import UUID, uuid4
 
 from sqlalchemy import func, select
@@ -414,6 +415,9 @@ def list_audit_events(
     *,
     actor_id: UUID | None = None,
     event_type: str | None = None,
+    subject_type: str | None = None,
+    since: datetime | None = None,
+    until: datetime | None = None,
     page: int = 1,
     page_size: int = 50,
 ) -> tuple[list[AuditEventResponse], int]:
@@ -422,6 +426,12 @@ def list_audit_events(
         filters.append(AuditEvent.actor_id == actor_id)
     if event_type:
         filters.append(AuditEvent.event_type == event_type)
+    if subject_type:
+        filters.append(AuditEvent.subject_type == subject_type)
+    if since is not None:
+        filters.append(AuditEvent.created_at >= since)
+    if until is not None:
+        filters.append(AuditEvent.created_at <= until)
     total = db.scalar(select(func.count()).select_from(AuditEvent).where(*filters)) or 0
     items = db.scalars(
         select(AuditEvent)

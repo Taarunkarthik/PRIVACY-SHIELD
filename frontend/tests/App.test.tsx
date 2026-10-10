@@ -23,6 +23,7 @@ function mockApi(initiallySignedIn = false) {
     if (path.startsWith('/api/v1/policies')) return json({ items: [], total: 0, page: 1, page_size: 20 });
     if (path.startsWith('/api/v1/connections')) return json({ items: [], total: 0, page: 1, page_size: 100 });
     if (path.startsWith('/api/v1/audit-events')) return json({ items: [], total: 0, page: 1, page_size: 50 });
+    if (path.startsWith('/api/v1/settings')) return json({ workspace_name: 'Privacy workspace', retention_days: 30, custom_patterns: [] });
     if (path.startsWith('/api/v1/deployments')) return json({ items: [], total: 0, page: 1, page_size: 20 });
     throw new Error(`Unexpected test endpoint: ${path}`);
   });
@@ -136,6 +137,6 @@ describe('dashboard and navigation', () => {
     await visitor.type(screen.getByLabelText('Email address'), user.email);
     await visitor.type(screen.getByLabelText('Password'), 'not-a-real-password');
     await visitor.click(screen.getByRole('button', { name: 'Sign in' }));
-    await waitFor(() => expect(screen.getByRole('heading', { name: 'Built around your workflow' })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Settings.' })).toBeInTheDocument());
   });
 });

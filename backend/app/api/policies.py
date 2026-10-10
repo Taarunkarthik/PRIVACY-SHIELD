@@ -1,3 +1,4 @@
+from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -183,12 +184,22 @@ def get_deployments(
 def get_audit_events(
     actor_id: UUID | None = None,
     event_type: str | None = None,
+    subject_type: str | None = None,
+    since: datetime | None = None,
+    until: datetime | None = None,
     page: int = Query(default=1, ge=1, le=100000),
     page_size: int = Query(default=50, ge=1, le=200),
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> AuditEventPage:
     items, total = list_audit_events(
-        db, actor_id=actor_id, event_type=event_type, page=page, page_size=page_size
+        db,
+        actor_id=actor_id,
+        event_type=event_type,
+        subject_type=subject_type,
+        since=since,
+        until=until,
+        page=page,
+        page_size=page_size,
     )
     return AuditEventPage(items=items, total=total, page=page, page_size=page_size)

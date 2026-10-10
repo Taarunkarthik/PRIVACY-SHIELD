@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.api import auth, classifications, connections, dashboard, health, policies, scans
+from app.api import settings as settings_routes
 from app.core.config import get_settings
 
 logger = logging.getLogger("privacyshield")
@@ -44,6 +45,7 @@ def create_app() -> FastAPI:
         scans.router,
         classifications.router,
         policies.router,
+        settings_routes.router,
     ):
         app.include_router(router, prefix="/api/v1")
 

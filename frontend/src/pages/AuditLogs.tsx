@@ -3,6 +3,24 @@ import { ChevronLeft, ChevronRight, FileClock, RefreshCw } from 'lucide-react';
 import { api, ApiError } from '../api/client';
 import type { AuditEventPage } from '../api/policies';
 
+const SUBJECT_TYPES: Array<{ value: string; label: string }> = [
+  { value: 'session', label: 'Session' },
+  { value: 'user', label: 'User' },
+  { value: 'database_connection', label: 'Database connection' },
+  { value: 'schema_snapshot', label: 'Schema snapshot' },
+  { value: 'scan_job', label: 'Scan job' },
+  { value: 'classification_job', label: 'Classification job' },
+  { value: 'masking_policy', label: 'Masking policy' },
+  { value: 'policy_deployment', label: 'Policy deployment' },
+];
+
+// Backends that predate the newer filters simply ignore the extra query parameters.
+function toIso(value: string) {
+  if (!value) return '';
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? '' : parsed.toISOString();
+}
+
 export function AuditLogs() {
   const [events, setEvents] = useState<AuditEventPage | null>(null);
   const [loading, setLoading] = useState(true);
@@ -10,18 +28,35 @@ export function AuditLogs() {
   const [page, setPage] = useState(1);
   const [revision, setRevision] = useState(0);
   const [eventType, setEventType] = useState('');
+  const [subjectType, setSubjectType] = useState('');
+  const [since, setSince] = useState('');
+  const [until, setUntil] = useState('');
+
+  const rangeInvalid = Boolean(since && until && new Date(since) > new Date(until));
 
   useEffect(() => {
+    if (rangeInvalid) {
+      setLoading(false);
+      return;
+    }
     const controller = new AbortController();
     setLoading(true);
     setError('');
-    const query = eventType ? `?event_type=${encodeURIComponent(eventType)}&page=${page}&page_size=50` : `?page=${page}&page_size=50`;
-    api<AuditEventPage>(`/audit-events${query}`, { signal: controller.signal })
+    const search = new URLSearchParams();
+    if (eventType) search.set('event_type', eventType);
+    if (subjectType) search.set('subject_type', subjectType);
+    const sinceIso = toIso(since);
+    const untilIso = toIso(until);
+    if (sinceIso) search.set('since', sinceIso);
+    if (untilIso) search.set('until', untilIso);
+    search.set('page', String(page));
+    search.set('page_size', '50');
+    api<AuditEventPage>(`/audit-events?${search.toString()}`, { signal: controller.signal })
       .then((v) => { if (!controller.signal.aborted) setEvents(v); })
       .catch((r: unknown) => { if (!controller.signal.aborted) setError(r instanceof ApiError ? r.message : 'Could not load audit events.'); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [page, revision, eventType]);
+  }, [page, revision, eventType, subjectType, since, until, rangeInvalid]);
 
   return <div className="page-content audit-page">
     <div className="page-heading">
@@ -48,11 +83,24 @@ export function AuditLogs() {
           <option value="SCHEMA_DISCOVERED">Schema discovered</option>
         </select>
       </div>
+      <div className="form-field"><label htmlFor="audit-subject-type">Subject</label>
+        <select id="audit-subject-type" value={subjectType} onChange={(e) => { setSubjectType(e.target.value); setPage(1); }}>
+          <option value="">All subjects</option>
+          {SUBJECT_TYPES.map((subject) => <option key={subject.value} value={subject.value}>{subject.label}</option>)}
+        </select>
+      </div>
+      <div className="form-field"><label htmlFor="audit-since">From</label>
+        <input id="audit-since" type="datetime-local" value={since} onChange={(e) => { setSince(e.target.value); setPage(1); }} />
+      </div>
+      <div className="form-field"><label htmlFor="audit-until">To</label>
+        <input id="audit-until" type="datetime-local" value={until} onChange={(e) => { setUntil(e.target.value); setPage(1); }} />
+      </div>
     </div>
-    {error && <div className="error-box" role="alert">{error}</div>}
+    {(error || rangeInvalid) && <div className="error-box" role="alert">{rangeInvalid ? 'Choose a start time that is earlier than the end time.' : error}</div>}
     <section className="panel" aria-label="Audit events">
-      <div className="panel-heading"><div><h2>Activity timeline <span className="count-badge">{events?.total ?? '—'}</span></h2><p> chronological record of workspace activity.</p></div><FileClock size={19} className="muted" /></div>
-      {loading && !events ? <div className="data-empty" role="status"><div className="loading-ring" /><p>Loading audit events…</p></div>
+      <div className="panel-heading"><div><h2>Activity timeline <span className="count-badge">{events?.total ?? '—'}</span></h2><p>A chronological record of workspace activity.</p></div><FileClock size={19} className="muted" /></div>
+      {rangeInvalid ? <div className="data-empty"><FileClock size={34} strokeWidth={1.3} /><h3>Adjust the time window</h3><p>The start of the window must be earlier than the end.</p></div>
+        : loading && !events ? <div className="data-empty" role="status"><div className="loading-ring" /><p>Loading audit events…</p></div>
         : events && !events.total ? <div className="data-empty"><FileClock size={34} strokeWidth={1.3} /><h3>No events found</h3><p>Activity will appear here as you use the workspace.</p></div>
         : <div className="audit-timeline">{events?.items.map((item) => (
           <div className="audit-event" key={item.id}>

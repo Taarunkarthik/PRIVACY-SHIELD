@@ -332,3 +332,44 @@ class AuditEvent(Entity, Base):
 
 
 Index("ix_audit_events_created_at", AuditEvent.created_at)
+
+
+class AppSettings(Entity, Base):
+    """Singleton workspace preferences. Only bounded, non-secret values are stored."""
+
+    __tablename__ = "app_settings"
+    __table_args__ = (
+        CheckConstraint(
+            "length(workspace_name) BETWEEN 1 AND 120", name="bounded_workspace_name"
+        ),
+        CheckConstraint("retention_days BETWEEN 1 AND 3650", name="bounded_retention_days"),
+        Index("uq_app_settings_singleton", text("(true)"), unique=True),
+    )
+
+    workspace_name: Mapped[str] = mapped_column(
+        String(120), server_default="Privacy workspace"
+    )
+    retention_days: Mapped[int] = mapped_column(Integer, server_default="365")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+    updated_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+
+
+class CustomPattern(Entity, Base):
+    """Operator-supplied detection regexes; raw source values are never stored here."""
+
+    __tablename__ = "custom_patterns"
+    __table_args__ = (
+        CheckConstraint(
+            "category IN ('PII','FINANCIAL','HEALTH','OTHER')", name="valid_category"
+        ),
+        CheckConstraint("length(name) BETWEEN 1 AND 60", name="bounded_name"),
+        CheckConstraint("length(regex) BETWEEN 1 AND 200", name="bounded_regex"),
+    )
+
+    name: Mapped[str] = mapped_column(String(60), unique=True)
+    category: Mapped[str] = mapped_column(String(16))
+    regex: Mapped[str] = mapped_column(String(200))
+    enabled: Mapped[bool] = mapped_column(Boolean, server_default=text("true"))
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)

@@ -2,6 +2,7 @@
 
 import os
 import secrets
+import time
 import uuid
 
 import psycopg
@@ -122,10 +123,17 @@ def test_real_deployment_protects_reader_and_preserves_source(admin_client, db):
     assert deployment.status_code == 202, deployment.text
     deployment_id = uuid.UUID(deployment.json()["id"])
 
+    # Either this process or the isolated worker may hold the deployment lock;
+    # poll for the terminal state instead of assuming which one ran it.
     run_deployment(deployment_id)
-
-    db.expire_all()
-    final = admin_client.get(f"/api/v1/policies/{policy_id}").json()
+    deadline = time.monotonic() + 30
+    final = None
+    while time.monotonic() < deadline:
+        db.expire_all()
+        final = admin_client.get(f"/api/v1/policies/{policy_id}").json()
+        if final["status"] in ("DEPLOYED", "FAILED"):
+            break
+        time.sleep(0.5)
     assert final["status"] == "DEPLOYED", final
     deployments = admin_client.get("/api/v1/deployments?page=1&page_size=5").json()
     assert any(
