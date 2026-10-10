@@ -6,9 +6,9 @@ PrivacyShield is a PostgreSQL privacy platform being built in seven tested phase
 
 ## Current delivery
 
-Phases 1–5 provide the control-plane schema, authenticated API, React dashboard, Docker topology, synthetic target database, encrypted connection management, schema discovery, asynchronous PII scanning, local AI recommendations, and human-approved masking policies deployed as security-barrier views. All five passed local acceptance and GitHub delivery verification. Pages for capabilities that are not yet available say so; demonstration counts must never be presented as scanned findings.
+All seven phases are delivered: the control-plane schema, authenticated API, React dashboard, Docker topology, synthetic target database, encrypted connection management, schema discovery, asynchronous PII scanning, local AI recommendations, human-approved masking policies deployed as security-barrier views, operator settings, a filtered audit timeline, and concurrency/recovery hardening. Every phase passed local acceptance and GitHub delivery verification. Pages for capabilities that are not yet available say so; demonstration counts must never be presented as scanned findings.
 
-The latest verified commit is [`304222f`](https://github.com/Taarunkarthik/PRIVACY-SHIELD/commit/304222f6307fc5e843eddc1bcc0f7d0f5e4bef0f). See [Phase 5 verification evidence](docs/verification-phase5.md) and [the delivery roadmap](docs/roadmap.md) for current status.
+The latest verified commit is [`964686a`](https://github.com/Taarunkarthik/PRIVACY-SHIELD/commit/964686a6301fb3bf2a5bd3b5ddc1f40cd8c622ac). See [Phase 7 verification evidence](docs/verification-phase7.md) and [the delivery roadmap](docs/roadmap.md) for current status and measured limitations.
 
 The submission target is **12 October 2026**, with working code and a reproducible demonstration. The seven phase gates remain in place within the three-day work window; the schedule is a target, not a guarantee of completion.
 
@@ -96,6 +96,8 @@ The backend is a FastAPI modular monolith shared by API and Celery processes. A 
 - [Phase 3 verification evidence](docs/verification-phase3.md)
 - [Phase 4 verification evidence](docs/verification-phase4.md)
 - [Phase 5 verification evidence](docs/verification-phase5.md)
+- [Phase 6 verification evidence](docs/verification-phase6.md)
+- [Phase 7 verification evidence](docs/verification-phase7.md)
 
 ## Security and delivery rules
 

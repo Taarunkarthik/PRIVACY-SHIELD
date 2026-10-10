@@ -64,5 +64,7 @@ push.
 
 ## GitHub delivery
 
-Recorded after the push: commit, matching remote SHA, and a passing GitHub
-Actions run.
+- Commit [`cecdab2`](https://github.com/Taarunkarthik/PRIVACY-SHIELD/commit/cecdab298fc6b6994e4ed739111e52a5b07972cc)
+  on `dev/privacyshield`; the remote SHA matched the local commit.
+- [GitHub Actions run `38072065431`](https://github.com/Taarunkarthik/PRIVACY-SHIELD/actions/runs/38072065431)
+  passed: backend and frontend jobs.

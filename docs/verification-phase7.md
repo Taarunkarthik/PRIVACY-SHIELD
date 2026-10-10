@@ -68,6 +68,14 @@ python scripts/check.py --integration --frontend   # full acceptance gate
 Reproducible demos: `python scripts/scan_demo.py`, `python scripts/classify_demo.py`
 (with `--profile ai`), and `python scripts/policy_demo.py`.
 
+## GitHub delivery
+
+- Commit [`964686a`](https://github.com/Taarunkarthik/PRIVACY-SHIELD/commit/964686a6301fb3bf2a5bd3b5ddc1f40cd8c622ac)
+  on `dev/privacyshield`; the remote SHA matched the local commit.
+- [GitHub Actions run `38072166328`](https://github.com/Taarunkarthik/PRIVACY-SHIELD/actions/runs/38072166328)
+  passed: backend and frontend jobs. (CI runs unit/build jobs; the browser
+  specs above are the documented local step.)
+
 ## Limitations
 
 - The browser specs are a documented local step; CI runs backend and frontend
