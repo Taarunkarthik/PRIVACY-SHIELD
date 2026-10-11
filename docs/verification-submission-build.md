@@ -36,7 +36,7 @@ This record says what was run on the merged result, on what, and what was not.
 | Check | Result |
 | --- | --- |
 | `ruff check .` | Passed |
-| Backend unit tests (`pytest -m "not integration"`) | 491 passed |
+| Backend unit tests (`pytest -m "not integration"`) | 496 passed |
 | `alembic upgrade head` from an empty database, then `alembic check` | Passed; one head (`0007_policy_audiences`), no drift |
 | Downgrade to `0005_format_masks`, upgrade to head, `alembic check` | Passed |
 | Integration tests against real PostgreSQL, Redis and a separate worker | 133 passed. 132 of them were run twice, on fresh databases and again on the used ones; the last, for the Vercel start wrapper, was added afterwards and run with the full suite once |

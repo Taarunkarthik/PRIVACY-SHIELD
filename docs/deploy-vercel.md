@@ -62,7 +62,17 @@ default branch, `dev/privacyshield`.
    | `ADMIN_PASSWORD` | 12 to 128 characters |
 
    Nothing else is needed: the start script finds the database from the
-   variables the Neon integration adds.
+   variables the Neon integration adds, whatever prefix they were given when
+   the database was connected. If it cannot, add `CONTROL_ADMIN_URL` yourself:
+   in the Neon console click **Connect**, switch **Connection pooling** off,
+   and copy the connection string (its host has no `-pooler` in it).
+
+   **Do not import a local `.env` file.** Two of its values are wrong for a
+   hosted site: `ALLOWED_ORIGINS` (it names `http://localhost:8080`, which
+   stops the project's own address being allowed automatically) and
+   `COOKIE_SECURE=false` (it removes the Secure flag from the session cookie).
+   Delete both if they are there. The other values from that file are either
+   ignored or used in place of the ones derived from `APP_SECRET`.
 4. **Deploy.** *Deployments* → the latest one → *Redeploy*. The build takes
    several minutes the first time.
 5. **Open the production address** (`<project>.vercel.app`) and sign in. A
@@ -94,9 +104,10 @@ INFO Serving frontend from /app/static, jobs run in-process, listening on 0.0.0.
 
 Checked here, on PostgreSQL 16 with a restricted (non-superuser) admin:
 
-- the start wrapper picks the direct database URL, refuses a pooled one,
-  removes every injected copy of the database owner's credentials before the
-  server starts, allows the project's own `*.vercel.app` addresses for the
+- the start wrapper picks the direct database URL (also when the integration's
+  variables carry a custom prefix), refuses a pooled one, removes every other
+  variable that holds a Postgres URL or the database owner's password before
+  the server starts, allows the project's own `*.vercel.app` addresses for the
   origin check, and falls back to `/tmp` for a home directory;
 - started through the wrapper, the server comes up, serves the frontend, signs
   an administrator in from both Vercel addresses, and refuses another origin;
