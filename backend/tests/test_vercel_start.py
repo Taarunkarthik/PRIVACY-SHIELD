@@ -156,6 +156,10 @@ def _build_steps(dockerfile: Path) -> str:
     return text[text.index("# ---- frontend") : text.index("USER 10001")]
 
 
+@pytest.mark.skipif(
+    not (REPO_ROOT / "Dockerfile.vercel").is_file(),
+    reason="the repository root is not in this build context",
+)
 def test_the_vercel_image_is_built_exactly_like_the_single_service_image():
     render, vercel = REPO_ROOT / "Dockerfile", REPO_ROOT / "Dockerfile.vercel"
     assert _build_steps(vercel) == _build_steps(render)
