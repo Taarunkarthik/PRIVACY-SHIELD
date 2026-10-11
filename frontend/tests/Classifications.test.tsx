@@ -25,7 +25,13 @@ function server({ role = 'ADMIN', status = 'COMPLETED', noJobs = false, postStat
     if (path.endsWith(`/scans/${scan.id}`)) return json(scan);
     if (path.endsWith(`/scans/${scan.id}/classification-summary`)) return summary ? json(summary) : json({ detail: 'private-backend-error' }, 500);
     if (path.includes('/results?')) return json({ items: [finding], total: 1, page: 1, page_size: 20 });
-    if (path.endsWith('/classify') && options?.method === 'POST') { storedJob = { ...storedJob, status: 'QUEUED', progress: 0, completed_results: 0 }; items = [storedJob]; return json(postStatus === 202 ? storedJob : { detail: 'private-backend-error' }, postStatus); }
+    if (path.endsWith('/classify') && options?.method === 'POST') {
+      // A refused request creates no job, so the job list must not show one afterwards.
+      if (postStatus !== 202) return json({ detail: 'private-backend-error' }, postStatus);
+      storedJob = { ...storedJob, status: 'QUEUED', progress: 0, completed_results: 0 };
+      items = [storedJob];
+      return json(storedJob, postStatus);
+    }
     if (path.includes('/classification-jobs?')) return json({ items, total: items.length, page: 1, page_size: 10 });
     if (path.endsWith(`/classification-jobs/${job.id}`)) return json(storedJob);
     if (path.includes('/classifications?')) return json({ items: [{ ...decision, unexpected_raw_value: 'secret@example.test' }], total: 1, page: 1, page_size: 20 });
