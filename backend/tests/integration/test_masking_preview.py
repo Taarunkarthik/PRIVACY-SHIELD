@@ -375,3 +375,73 @@ def test_suggestions_follow_scan_findings(admin_client, db):
     assert admin_client.post(f"/api/v1/policies/{policy_id}/submit").status_code == 200
 
     assert admin_client.get(query + "missing_table").status_code == 422
+
+
+def test_dashboard_insights_match_the_overview_and_track_coverage(admin_client, db):
+    host, port, passwords = _target_env()
+    connection_id, snapshot_id = _register(admin_client, host, port, passwords)
+    scan = admin_client.post(
+        "/api/v1/scans",
+        json={"connection_id": connection_id, "snapshot_id": snapshot_id, "sample_limit": 25},
+    )
+    assert scan.status_code == 202, scan.text
+    deadline = time.monotonic() + 90
+    while time.monotonic() < deadline:
+        status = admin_client.get(f"/api/v1/scans/{scan.json()['id']}").json()["status"]
+        if status in ("COMPLETED", "FAILED", "CANCELLED"):
+            break
+        time.sleep(0.5)
+    assert status == "COMPLETED"
+
+    before = admin_client.get("/api/v1/dashboard/insights")
+    assert before.status_code == 200, before.text
+    body = before.json()
+    summary = admin_client.get("/api/v1/dashboard/summary").json()
+    sensitive = body["coverage"]["sensitive_columns"]
+    # Every breakdown describes the same set of columns as the overview total.
+    assert sensitive == summary["sensitive_columns"] > 0
+    assert sum(item["columns"] for item in body["categories"]) == sensitive
+    assert sum(item["columns"] for item in body["risks"]) == sensitive
+    assert [item["risk"] for item in body["risks"]] == ["CRITICAL", "HIGH", "MEDIUM", "LOW"]
+    assert 0 <= body["risks_from_ai"] <= sensitive
+    assert 0 <= body["coverage"]["protected_columns"] <= sensitive
+    counts = [item["columns"] for item in body["categories"]]
+    assert counts == sorted(counts, reverse=True)
+    assert {"EMAIL_ADDRESS", "PHONE_NUMBER"} <= {item["category"] for item in body["categories"]}
+    assert [item["status"] for item in body["policy_status"]] == [
+        "DRAFT",
+        "PENDING_APPROVAL",
+        "APPROVED",
+        "DEPLOYED",
+        "REJECTED",
+        "FAILED",
+    ]
+    assert sum(item["policies"] for item in body["policy_status"]) >= 0
+    assert 1 <= len(body["recent_activity"]) <= 6
+    times = [event["created_at"] for event in body["recent_activity"]]
+    assert times == sorted(times, reverse=True)
+    # Counts and event names only: no source value appears in the breakdowns.
+    assert "@example" not in before.text
+
+    suggestions = admin_client.get(
+        f"/api/v1/policies/suggestions?connection_id={connection_id}"
+        f"&snapshot_id={snapshot_id}&schema_name=enterprise&table_name=customers"
+    ).json()
+    flagged = [c["column_name"] for c in suggestions["columns"] if c["source"] == "DETECTOR"]
+    assert "email" in flagged and len(flagged) >= 5
+
+    # Deploy a policy that deliberately keeps email readable. Every other
+    # flagged column is masked or left without a rule (NULL), so it is covered.
+    policy_id = _create_policy(
+        admin_client,
+        connection_id,
+        snapshot_id,
+        "customers",
+        [{"column_name": "id", "action": "KEEP"}, {"column_name": "email", "action": "KEEP"}],
+    )
+    _approve(admin_client, policy_id)
+    assert _deploy(admin_client, db, policy_id)[1] == "DEPLOYED"
+    after = admin_client.get("/api/v1/dashboard/insights").json()
+    gained = after["coverage"]["protected_columns"] - body["coverage"]["protected_columns"]
+    assert gained == len(flagged) - 1
+    assert after["coverage"]["sensitive_columns"] == sensitive

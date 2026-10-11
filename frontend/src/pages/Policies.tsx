@@ -1,13 +1,16 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
-import { ArrowRight, Check, ChevronLeft, ChevronRight, Eye, FileClock, Play, Plus, RefreshCw, Send, ShieldCheck, X } from 'lucide-react';
+import { ArrowRight, Check, ChevronLeft, ChevronRight, Eye, FileClock, LockKeyhole, Play, Plus, RefreshCw, Send, ShieldCheck, Sparkles, X } from 'lucide-react';
 import { api, ApiError } from '../api/client';
 import { useAuth } from '../api/auth';
 import type { Connection, SchemaSnapshot } from '../api/connections';
-import type { Policy, PolicyPage, PolicyPreview, PolicyAction } from '../api/policies';
-import { actionLabel, policyStatusLabel } from '../api/policies';
+import { classificationCategory } from '../api/classifications';
+import type { Policy, PolicyPage, PolicyPreview, PolicyAction, PolicySamples, PolicySuggestions, ProtectedOutput, RuleSuggestion } from '../api/policies';
+import { actionHint, actionLabel, policyStatusLabel } from '../api/policies';
 
-const ACTIONS: PolicyAction[] = ['KEEP', 'REDACT', 'PARTIAL', 'PSEUDONYMIZE', 'NULLIFY', 'RESTRICT'];
+const ACTIONS: PolicyAction[] = ['KEEP', 'MASK_EMAIL', 'MASK_PHONE', 'MASK_ID', 'PARTIAL', 'REDACT', 'PSEUDONYMIZE', 'NULLIFY', 'RESTRICT'];
+// The pseudonym key domain provisioned on the bundled demonstration target.
+const DEFAULT_PSEUDONYM_DOMAIN = 'demo';
 
 export function Policies() {
   const { user } = useAuth();
@@ -29,6 +32,9 @@ export function Policies() {
   const [actionLoading, setActionLoading] = useState('');
   const [preview, setPreview] = useState<PolicyPreview | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [samples, setSamples] = useState<PolicySamples | null>(null);
+  const [output, setOutput] = useState<ProtectedOutput | null>(null);
+  const [outputLoading, setOutputLoading] = useState(false);
   const connectionId = params.get('connection') || connections.find((c) => c.is_active)?.id || connections[0]?.id || '';
   const connection = connections.find((c) => c.id === connectionId);
   const selectedId = params.get('policy') || policies?.items[0]?.id || '';
@@ -101,13 +107,35 @@ export function Policies() {
   }
 
   async function loadPreview(id: string) {
-    setPreviewLoading(true); setPreviewError(''); setPreview(null);
+    setPreviewLoading(true); setPreviewError(''); setPreview(null); setSamples(null);
     try {
       const v = await api<PolicyPreview>(`/policies/${encodeURIComponent(id)}/preview`);
       setPreview(v);
+      // The before/after illustration is optional: it needs the target database,
+      // so the compiled preview is shown even when the illustration is unavailable.
+      api<PolicySamples>(`/policies/${encodeURIComponent(id)}/preview/samples`)
+        .then((value) => setSamples(value.policy_id === id ? value : null))
+        .catch(() => setSamples(null));
     } catch (r) { setPreviewError(r instanceof ApiError ? r.message : 'Could not load preview.'); }
     finally { setPreviewLoading(false); }
   }
+
+  async function loadOutput(id: string) {
+    setOutputLoading(true); setActionError(''); setOutput(null);
+    try {
+      setOutput(await api<ProtectedOutput>(`/policies/${encodeURIComponent(id)}/protected-output`));
+    } catch (r) {
+      setActionError(r instanceof ApiError && r.status === 409
+        ? 'This version is not the one currently deployed for its table, so there is no protected output to show.'
+        : r instanceof ApiError ? r.message : 'Could not load the protected output.');
+    }
+    finally { setOutputLoading(false); }
+  }
+
+  // A preview or output belongs to one policy; hide it when another is selected.
+  const shownPreview = preview && preview.policy_id === selectedId ? preview : null;
+  const shownSamples = shownPreview && samples?.status === 'OK' && samples.policy_id === selectedId ? samples : null;
+  const shownOutput = output && output.policy_id === selectedId ? output : null;
 
   return <div className="page-content policies-page">
     <div className="page-heading">
@@ -151,7 +179,7 @@ export function Policies() {
             {selected.rules.map((rule) => (
               <div className="rules-row" key={rule.column_name}>
                 <span className="rule-column">{rule.column_name}</span>
-                <span className={`pill action-${rule.action.toLowerCase()}`}>{actionLabel[rule.action]}</span>
+                <span className={`pill action-${rule.action.toLowerCase().replace('_', '-')}`}>{actionLabel[rule.action]}</span>
                 <span className="rule-domain">{rule.pseudonym_domain || '—'}</span>
               </div>
             ))}
@@ -166,26 +194,73 @@ export function Policies() {
           </>}
           {canApprove && (selected.status === 'APPROVED' || selected.status === 'FAILED') && <button className="button primary" disabled={actionLoading === selected.id} onClick={() => deployPolicy(selected.id)}><Play size={15} />{actionLoading === selected.id ? 'Deploying…' : 'Deploy'}</button>}
           <button className="button secondary" disabled={previewLoading} onClick={() => loadPreview(selected.id)}><Eye size={15} />{previewLoading ? 'Loading…' : 'Preview'}</button>
+          {canApprove && selected.status === 'DEPLOYED' && <button className="button secondary" disabled={outputLoading} onClick={() => loadOutput(selected.id)}><LockKeyhole size={15} />{outputLoading ? 'Loading…' : 'View protected output'}</button>}
         </div>
       </section>}
 
-      {preview && <section className="panel policy-preview" aria-label="Policy preview">
-        <div className="panel-heading"><div><h2>Preview: {preview.view_schema}.{preview.view_name}</h2><p>Security-barrier view with {preview.columns.length} columns.</p></div><Eye size={19} className="muted" /></div>
-        <div className="preview-columns">
-          {preview.columns.map((col) => (
-            <div className="preview-column" key={col.name}>
-              <span className="preview-col-name">{col.name}</span>
-              <span className="preview-col-type">{col.data_type}</span>
-              <span className={`pill action-${col.action.toLowerCase()}`}>{actionLabel[col.action]}</span>
-            </div>
-          ))}
+      {shownPreview && <section className="panel policy-preview" aria-label="Policy preview">
+        <div className="panel-heading"><div><h2>Preview: {shownPreview.view_schema}.{shownPreview.view_name}</h2><p>Security-barrier view with {shownPreview.columns.length} columns.</p></div><Eye size={19} className="muted" /></div>
+        {shownSamples
+          ? <div className="table-scroll">
+            <table className="columns-table masking-table">
+              <caption className="masking-caption">Each example value is run through the policy's real masking expression in PostgreSQL. The examples are invented: no rows are read from your database.</caption>
+              <thead><tr><th scope="col">Column</th><th scope="col">Action</th><th scope="col">Example value</th><th scope="col">After masking</th></tr></thead>
+              <tbody>{shownSamples.columns.map((col, index) => (
+                <tr className="preview-column" key={col.name}>
+                  <th scope="row">{col.name}<small className="masking-type">{col.data_type}</small></th>
+                  <td><span className={`pill action-${col.action.toLowerCase().replace('_', '-')}`}>{actionLabel[col.action]}</span></td>
+                  <td><MaskedCell value={shownSamples.before[0]?.[index] ?? null} /></td>
+                  <td><MaskedCell value={shownSamples.after[0]?.[index] ?? null} changed={shownSamples.before[0]?.[index] !== shownSamples.after[0]?.[index]} /></td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+          : <div className="preview-columns">
+            {shownPreview.columns.map((col) => (
+              <div className="preview-column" key={col.name}>
+                <span className="preview-col-name">{col.name}</span>
+                <span className="preview-col-type">{col.data_type}</span>
+                <span className={`pill action-${col.action.toLowerCase().replace('_', '-')}`}>{actionLabel[col.action]}</span>
+              </div>
+            ))}
+          </div>}
+        <details className="preview-sql"><summary>View SQL</summary><pre>{shownPreview.sql}</pre></details>
+      </section>}
+
+      {shownOutput && <section className="panel policy-preview" aria-label="Protected output">
+        <div className="panel-heading"><div><h2>Protected output: {shownOutput.view_schema}.{shownOutput.view_name}</h2><p>The first {shownOutput.rows.length} rows as the <code>{shownOutput.access.reader_role}</code> role sees them through the deployed view.</p></div><LockKeyhole size={19} className="muted" /></div>
+        <ul className="access-facts">
+          <li className={shownOutput.access.reader_can_read_view ? 'access-ok' : 'access-bad'}>{shownOutput.access.reader_can_read_view ? <Check size={14} /> : <X size={14} />}<span><code>{shownOutput.access.reader_role}</code> {shownOutput.access.reader_can_read_view ? 'can read' : 'cannot read'} the masked view</span></li>
+          <li className={shownOutput.access.reader_can_read_source ? 'access-bad' : 'access-ok'}>{shownOutput.access.reader_can_read_source ? <X size={14} /> : <Check size={14} />}<span><code>{shownOutput.access.reader_role}</code> {shownOutput.access.reader_can_read_source ? 'can still read' : 'cannot read'} the source table {shownOutput.source_schema}.{shownOutput.source_table}</span></li>
+        </ul>
+        <div className="table-scroll">
+          <table className="columns-table masking-table">
+            <thead><tr>{shownOutput.columns.map((col) => <th scope="col" key={col.name}>{col.name}<small className="masking-type">{actionLabel[col.action]}</small></th>)}</tr></thead>
+            <tbody>{shownOutput.rows.map((row, rowIndex) => (
+              <tr key={rowIndex}>{row.map((value, index) => <td key={shownOutput.columns[index].name}><MaskedCell value={value} changed={shownOutput.columns[index].action !== 'KEEP'} /></td>)}</tr>
+            ))}</tbody>
+          </table>
         </div>
-        <details className="preview-sql"><summary>View SQL</summary><pre>{preview.sql}</pre></details>
+        {!shownOutput.rows.length && <p className="masking-empty">The source table has no rows yet.</p>}
       </section>}
     </>}
 
     {showCreate && <CreatePolicyDialog connectionId={connectionId} onClose={() => setShowCreate(false)} onError={setCreateError} onCreated={(id) => { setShowCreate(false); setParams({ connection: connectionId, policy: id }); setRevision((v) => v + 1); }} />}
   </div>;
+}
+
+function MaskedCell({ value, changed = false }: { value: string | null; changed?: boolean }) {
+  if (value === null) return <span className="masked-null">NULL</span>;
+  return <code className={changed ? 'masked-value' : undefined}>{value}</code>;
+}
+
+function suggestionNote(suggestion: RuleSuggestion | undefined): string {
+  if (!suggestion || suggestion.source === 'NOT_SCANNED') return 'Not scanned yet';
+  if (suggestion.source === 'NO_FINDINGS') return `Nothing found in ${suggestion.sampled_rows.toLocaleString()} sampled rows`;
+  const category = classificationCategory(suggestion.category ?? '');
+  return suggestion.source === 'AI'
+    ? `${category} (AI suggestion)`
+    : `${category} in ${suggestion.matching_rows.toLocaleString()} of ${suggestion.sampled_rows.toLocaleString()} sampled rows`;
 }
 
 function CreatePolicyDialog({ connectionId, onClose, onError, onCreated }: { connectionId: string; onClose: () => void; onError: (msg: string) => void; onCreated: (id: string) => void }) {
@@ -194,6 +269,8 @@ function CreatePolicyDialog({ connectionId, onClose, onError, onCreated }: { con
   const [snapshotLoading, setSnapshotLoading] = useState(true);
   const [selectedTable, setSelectedTable] = useState('');
   const [rules, setRules] = useState<Record<string, PolicyAction>>({});
+  const [domains, setDomains] = useState<Record<string, string>>({});
+  const [suggestions, setSuggestions] = useState<PolicySuggestions | null>(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -206,15 +283,38 @@ function CreatePolicyDialog({ connectionId, onClose, onError, onCreated }: { con
     return () => controller.abort();
   }, [connectionId]);
 
-  const table = snapshot?.catalog.tables.find((t) => t.name === selectedTable);
+  const tableKey = (t: { schema: string; name: string }) => `${t.schema}.${t.name}`;
+  const table = snapshot?.catalog.tables.find((t) => tableKey(t) === selectedTable);
+  const tableSchema = table?.schema;
+  const tableName = table?.name;
+  const snapshotId = snapshot?.snapshot_id;
 
-  function toggleRule(column: string, action: PolicyAction) {
+  useEffect(() => {
+    setSuggestions(null);
+    if (!tableSchema || !tableName || !snapshotId) return;
+    const controller = new AbortController();
+    const query = new URLSearchParams({ connection_id: connectionId, snapshot_id: snapshotId, schema_name: tableSchema, table_name: tableName });
+    // Suggestions are a convenience; the editor works without them.
+    api<PolicySuggestions>(`/policies/suggestions?${query}`, { signal: controller.signal })
+      .then((v) => { if (!controller.signal.aborted) setSuggestions(v); })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [connectionId, snapshotId, tableSchema, tableName]);
+
+  const byColumn = new Map((suggestions?.columns ?? []).map((item) => [item.column_name, item]));
+  const suggested = (suggestions?.columns ?? []).filter((item) => item.action);
+
+  function setRule(column: string, action: PolicyAction | '') {
     setRules((prev) => {
       const next = { ...prev };
-      if (next[column] === action) delete next[column];
-      else next[column] = action;
+      if (action) next[column] = action;
+      else delete next[column];
       return next;
     });
+  }
+
+  function applySuggestions() {
+    setRules(Object.fromEntries(suggested.map((item) => [item.column_name, item.action as PolicyAction])));
   }
 
   async function create() {
@@ -229,7 +329,12 @@ function CreatePolicyDialog({ connectionId, onClose, onError, onCreated }: { con
           schema_name: table.schema,
           table_name: table.name,
           snapshot_id: snapshot!.snapshot_id,
-          rules: Object.entries(rules).map(([column_name, action]) => ({ column_name, action })),
+          rules: Object.entries(rules).map(([column_name, action]) => ({
+            column_name,
+            action,
+            ...(action === 'PSEUDONYMIZE' ? { pseudonym_domain: (domains[column_name] ?? DEFAULT_PSEUDONYM_DOMAIN).trim() || DEFAULT_PSEUDONYM_DOMAIN } : {}),
+            ...(byColumn.get(column_name)?.classification_id ? { classification_id: byColumn.get(column_name)!.classification_id } : {}),
+          })),
         }),
       });
       onCreated(created.id);
@@ -238,30 +343,44 @@ function CreatePolicyDialog({ connectionId, onClose, onError, onCreated }: { con
   }
 
   return <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="Create policy">
-    <div className="modal-panel">
+    <div className="modal-panel wide">
       <div className="modal-header"><h2>New masking policy</h2><button className="text-button" onClick={onClose}>Cancel</button></div>
       {snapshotLoading ? <div className="data-empty" role="status"><div className="loading-ring" /><p>Loading schema…</p></div>
         : !snapshot ? <div className="data-empty"><p>No schema snapshot found. Discover the schema first.</p></div>
         : <>
           <div className="form-field"><label htmlFor="policy-table">Table</label>
-            <select id="policy-table" value={selectedTable} onChange={(e) => { setSelectedTable(e.target.value); setRules({}); }}>
+            <select id="policy-table" value={selectedTable} onChange={(e) => { setSelectedTable(e.target.value); setRules({}); setDomains({}); }}>
               <option value="">Choose a table</option>
-              {snapshot.catalog.tables.map((t) => <option key={t.name} value={t.name}>{t.schema}.{t.name}</option>)}
+              {snapshot.catalog.tables.map((t) => <option key={tableKey(t)} value={tableKey(t)}>{t.schema}.{t.name}</option>)}
             </select>
           </div>
           {table && <div className="rules-editor">
-            <p className="rules-editor-note">Choose a protection action for each column. Unselected columns become NULL.</p>
+            <div className="suggestion-bar">
+              <p className="rules-editor-note">Choose what the reader role sees in each column. A column with no rule is returned as NULL.</p>
+              {suggested.length > 0 && <button type="button" className="button secondary" onClick={applySuggestions}><Sparkles size={14} /> Apply {suggested.length} suggestions</button>}
+            </div>
+            {suggestions && !suggestions.scan_id && <p className="rules-editor-note">No completed scan for this connection yet, so there are no suggestions. Run a scan to get them.</p>}
             <div className="rules-editor-list">
-              {table.columns.map((col) => (
-                <div className="rules-editor-row" key={col.name}>
+              {table.columns.map((col) => {
+                const suggestion = byColumn.get(col.name);
+                const action = rules[col.name] ?? '';
+                return <div className="rules-editor-row" key={col.name}>
                   <span className="rules-editor-col">{col.name} <small>{col.data_type}</small></span>
-                  <div className="rules-editor-actions">
-                    {ACTIONS.map((action) => (
-                      <button key={action} type="button" className={`rules-editor-action ${rules[col.name] === action ? 'active' : ''}`} onClick={() => toggleRule(col.name, action)}>{actionLabel[action]}</button>
-                    ))}
-                  </div>
-                </div>
-              ))}
+                  <span className="rules-editor-evidence">
+                    {suggestions ? suggestionNote(suggestion) : ''}
+                    {suggestion?.action && <small>Suggested: {actionLabel[suggestion.action]}</small>}
+                  </span>
+                  <span className="rules-editor-choice">
+                    <select aria-label={`Action for ${col.name}`} value={action} onChange={(e) => setRule(col.name, e.target.value as PolicyAction | '')}>
+                      <option value="">No rule (NULL)</option>
+                      {ACTIONS.map((item) => <option key={item} value={item}>{actionLabel[item]}</option>)}
+                    </select>
+                    {action === 'PSEUDONYMIZE'
+                      ? <input aria-label={`Pseudonym key domain for ${col.name}`} value={domains[col.name] ?? DEFAULT_PSEUDONYM_DOMAIN} maxLength={60} onChange={(e) => setDomains((prev) => ({ ...prev, [col.name]: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '') }))} />
+                      : <small>{action ? actionHint[action] : 'Returned as NULL'}</small>}
+                  </span>
+                </div>;
+              })}
             </div>
           </div>}
           <div className="modal-actions">

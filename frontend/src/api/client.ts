@@ -47,3 +47,11 @@ export type DashboardSummary = {
   deployed_policies: number;
   scan_jobs: number;
 };
+export type DashboardInsights = {
+  categories: Array<{ category: string; columns: number }>;
+  risks: Array<{ risk: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW'; columns: number }>;
+  risks_from_ai: number;
+  policy_status: Array<{ status: string; policies: number }>;
+  coverage: { sensitive_columns: number; protected_columns: number };
+  recent_activity: Array<{ event_type: string; subject_type: string; created_at: string }>;
+};

@@ -6,6 +6,10 @@ import { SESSION_EXPIRED } from '../src/api/client';
 
 const user = { id: 'test-user', email: 'admin@example.test', role: 'ADMIN', csrf_token: 'test-only-csrf-value' };
 const totals = { databases: 0, tables: 0, sensitive_columns: 0, pending_approvals: 0, deployed_policies: 0, scan_jobs: 0 };
+const insights = {
+  categories: [], risks: [], risks_from_ai: 0, policy_status: [],
+  coverage: { sensitive_columns: 0, protected_columns: 0 }, recent_activity: [],
+};
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 
 function mockApi(initiallySignedIn = false) {
@@ -20,6 +24,7 @@ function mockApi(initiallySignedIn = false) {
       return new Response(null, { status: 204 });
     }
     if (path === '/api/v1/dashboard/summary') return json(totals);
+    if (path === '/api/v1/dashboard/insights') return json(insights);
     if (path.startsWith('/api/v1/policies')) return json({ items: [], total: 0, page: 1, page_size: 20 });
     if (path.startsWith('/api/v1/connections')) return json({ items: [], total: 0, page: 1, page_size: 100 });
     if (path.startsWith('/api/v1/audit-events')) return json({ items: [], total: 0, page: 1, page_size: 50 });
@@ -138,5 +143,40 @@ describe('dashboard and navigation', () => {
     await visitor.type(screen.getByLabelText('Password'), 'not-a-real-password');
     await visitor.click(screen.getByRole('button', { name: 'Sign in' }));
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Settings.' })).toBeInTheDocument());
+  });
+
+  it('breaks the findings down by category and risk, with protection coverage', async () => {
+    const fetchMock = mockApi(true);
+    const populated = { databases: 1, tables: 4, sensitive_columns: 9, pending_approvals: 1, deployed_policies: 1, scan_jobs: 2 };
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === '/api/v1/auth/me') return json(user);
+      if (path === '/api/v1/dashboard/summary') return json(populated);
+      if (path === '/api/v1/dashboard/insights') return json({
+        categories: [{ category: 'EMAIL_ADDRESS', columns: 3 }, { category: 'AADHAAR_CANDIDATE', columns: 1 }],
+        risks: [{ risk: 'CRITICAL', columns: 2 }, { risk: 'HIGH', columns: 5 }, { risk: 'MEDIUM', columns: 2 }, { risk: 'LOW', columns: 0 }],
+        risks_from_ai: 0,
+        policy_status: [{ status: 'DRAFT', policies: 1 }, { status: 'DEPLOYED', policies: 1 }],
+        coverage: { sensitive_columns: 9, protected_columns: 6 },
+        recent_activity: [{ event_type: 'POLICY_APPROVED', subject_type: 'masking_policy', created_at: new Date().toISOString() }],
+      });
+      throw new Error(`Unexpected test endpoint: ${path}`);
+    });
+    render(<App />);
+
+    const categories = await screen.findByRole('list', { name: 'Sensitive columns by category' });
+    expect(categories).toHaveTextContent('Email address3');
+    expect(categories).toHaveTextContent('Aadhaar candidate1');
+    const risks = screen.getByRole('list', { name: 'Sensitive columns by risk level' });
+    expect(risks).toHaveTextContent('Critical2');
+    expect(risks).toHaveTextContent('Low0');
+    expect(screen.getByText('6 of 9')).toBeInTheDocument();
+    expect(screen.getByRole('meter', { name: 'Sensitive columns masked by a deployed policy' })).toHaveAttribute('aria-valuenow', '6');
+    expect(screen.getByText('Risk level is assigned from the detected category.')).toBeInTheDocument();
+    expect(screen.getByText('Policy approved')).toBeInTheDocument();
+    // Every step of the workflow is delivered; none is labelled as planned.
+    expect(screen.getAllByText(/Available now/)).toHaveLength(3);
+    expect(screen.queryByText(/Planned capability/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Masking policies are next/)).not.toBeInTheDocument();
   });
 });
