@@ -7,3 +7,14 @@ env
 **/dist
 **/.pytest_cache
 **/.ruff_cache
+# The root Dockerfile copies backend/ and frontend/ whole. Keep local virtual
+# environments, secrets and test output out of the build context and the image.
+**/.venv
+**/*.pyc
+**/.env
+**/.env.*
+!**/.env.example
+**/coverage
+**/test-results
+**/playwright-report
+**/*.tsbuildinfo

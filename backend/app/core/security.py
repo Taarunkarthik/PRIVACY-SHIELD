@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import secrets
+import threading
 
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
@@ -13,17 +14,24 @@ CSRF_COOKIE = "ps_csrf"
 password_hasher = PasswordHasher(time_cost=3, memory_cost=65536, parallelism=2)
 # Perform a real Argon2 check for unknown accounts as well as known accounts.
 _dummy_hash = password_hasher.hash(secrets.token_urlsafe(32))
+# Every Argon2 computation holds memory_cost (64 MiB) while it runs, and sign-in
+# is reachable without authentication. Unbounded, eight simultaneous attempts
+# were measured at over 700 MB in one process. Two at a time caps the extra
+# memory at 128 MiB; further attempts wait their turn and get the same answer.
+_argon2_slots = threading.BoundedSemaphore(2)
 
 
 def hash_password(password: str) -> str:
     if not 12 <= len(password) <= 128:
         raise ValueError("Passwords must contain 12 to 128 characters")
-    return password_hasher.hash(password)
+    with _argon2_slots:
+        return password_hasher.hash(password)
 
 
 def verify_password(password: str, encoded: str | None) -> bool:
     try:
-        matched = password_hasher.verify(encoded or _dummy_hash, password)
+        with _argon2_slots:
+            matched = password_hasher.verify(encoded or _dummy_hash, password)
     except (VerifyMismatchError, VerificationError, InvalidHashError):
         return False
     return bool(encoded and matched)

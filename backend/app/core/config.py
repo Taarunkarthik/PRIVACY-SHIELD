@@ -1,6 +1,7 @@
 import json
 from functools import lru_cache
-from typing import Annotated
+from pathlib import Path
+from typing import Annotated, Literal
 
 from cryptography.fernet import Fernet
 from pydantic import Field, SecretStr, field_validator
@@ -16,6 +17,10 @@ class Settings(BaseSettings):
     database_url: SecretStr
     migration_database_url: SecretStr | None = None
     redis_url: SecretStr = SecretStr("redis://redis:6379/0")
+    # "celery": jobs are delivered through Redis to a separate Celery worker.
+    # "inline": this API process runs them itself (see app/workers/inline.py);
+    # Redis and Celery are neither imported nor contacted.
+    job_runner: Literal["celery", "inline"] = "celery"
     celery_queue: str = Field(default="privacyshield", pattern=r"^[a-zA-Z0-9_-]{1,80}$")
     ollama_base_url: str = "http://ollama:11434"
     ollama_model: str = Field(default="qwen2.5:1.5b", min_length=1, max_length=120)
@@ -23,6 +28,12 @@ class Settings(BaseSettings):
     allowed_origins: list[str] = Field(default_factory=lambda: ["http://localhost:8080"])
     # A single deployment origin (e.g. a Render frontend URL) merged with allowed_origins.
     frontend_origin: str | None = None
+    # Render sets RENDER_EXTERNAL_URL (https://<name>.onrender.com) on every web
+    # service. It is used as the deployment origin when FRONTEND_ORIGIN is unset.
+    render_external_url: str | None = None
+    # When set, the API also serves the built frontend from this directory
+    # (single-service hosting). Unset: the API serves /api only, as before.
+    static_dir: Path | None = None
     # Accepts a JSON array or a comma-separated host list so hosted platforms can
     # inject a single database hostname from a managed instance.
     target_allowed_hosts: Annotated[list[str], NoDecode] = Field(
@@ -63,6 +74,12 @@ class Settings(BaseSettings):
             raise ValueError("Specify explicit HTTP(S) origins without trailing slashes")
         return values
 
+    @field_validator("frontend_origin", mode="before")
+    @classmethod
+    def blank_frontend_origin(cls, value: object) -> object:
+        # A blank dashboard field means "not set", not an invalid origin.
+        return None if isinstance(value, str) and not value.strip() else value
+
     @field_validator("frontend_origin")
     @classmethod
     def valid_frontend_origin(cls, value: str | None) -> str | None:
@@ -71,6 +88,20 @@ class Settings(BaseSettings):
         ):
             raise ValueError("FRONTEND_ORIGIN must be an http(s) origin without a trailing slash")
         return value
+
+    @field_validator("render_external_url", mode="before")
+    @classmethod
+    def platform_origin(cls, value: object) -> object:
+        # Platform-supplied, so be lenient: ignore anything that is not an origin.
+        if not isinstance(value, str):
+            return None
+        text = value.strip().rstrip("/")
+        return text if text.startswith(("http://", "https://")) else None
+
+    @field_validator("static_dir", mode="before")
+    @classmethod
+    def optional_static_dir(cls, value: object) -> object:
+        return None if isinstance(value, str) and not value.strip() else value
 
     @field_validator("target_allowed_hosts", mode="before")
     @classmethod
@@ -94,7 +125,8 @@ class Settings(BaseSettings):
     @property
     def origins(self) -> list[str]:
         """Effective CSRF/CORS origin allow list, including an optional deployment origin."""
-        extra = [self.frontend_origin] if self.frontend_origin else []
+        deployment = self.frontend_origin or self.render_external_url
+        extra = [deployment] if deployment else []
         return list(dict.fromkeys([*self.allowed_origins, *extra]))
 
 

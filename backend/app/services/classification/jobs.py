@@ -62,6 +62,10 @@ def enqueue_classification(job_id: UUID, *, force=False) -> bool:
             job.dispatch_attempted_at = now
             db.commit()
     try:
+        if get_settings().job_runner == "inline":
+            from app.workers.inline import submit
+
+            return submit("classify", job_id)
         from app.workers.celery_app import celery_app
 
         celery_app.send_task(

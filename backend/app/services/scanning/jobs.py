@@ -129,6 +129,11 @@ def enqueue_scan(job_id: UUID, *, force: bool = False) -> bool:
             db.commit()
     # Release the lock before publishing so an immediately scheduled worker can acquire it.
     try:
+        if get_settings().job_runner == "inline":
+            # No broker: hand the identifier to this process's own job runner.
+            from app.workers.inline import submit
+
+            return submit("scan", job_id)
         from app.workers.celery_app import celery_app
 
         celery_app.send_task(
