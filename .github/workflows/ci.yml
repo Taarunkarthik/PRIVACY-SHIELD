@@ -47,6 +47,22 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
+      pristine:
+        # An empty server with none of the PrivacyShield roles: what a newly
+        # created managed instance looks like. The single-service hosting test
+        # creates a non-superuser admin on it and runs the real bootstrap.
+        image: postgres:16-bookworm@sha256:0ea6700a3b4f0ae6ce746519073558aed4d88a79d8d07622a9a644946c7319c4
+        env:
+          # Disposable runner only, bound to loopback. A password (rather than
+          # trust) keeps SCRAM on, so the test proves the derived role passwords.
+          POSTGRES_PASSWORD: disposable-ci-superuser
+        ports:
+          - 127.0.0.1:5434:5432
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
       redis:
         image: redis:7.4-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
         ports:
@@ -70,6 +86,7 @@ jobs:
       CELERY_QUEUE: privacyshield-ci
       OLLAMA_BASE_URL: http://127.0.0.1:11435
       TEST_OLLAMA_BASE_URL: http://127.0.0.1:11435
+      TEST_PRISTINE_POSTGRES_URL: postgresql://postgres:disposable-ci-superuser@127.0.0.1:5434/postgres
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-python@v7.0.0
@@ -229,3 +246,107 @@ jobs:
         run: npm test
       - name: Production build
         run: npm run build
+
+  image:
+    # The repository-root Dockerfile is what the hosted (Render) service builds.
+    # This job builds it and runs the result the way the platform does: one
+    # container, one PostgreSQL instance whose admin user is not a superuser,
+    # no Redis, no worker.
+    name: All-in-one image (build and smoke test)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16-bookworm@sha256:0ea6700a3b4f0ae6ce746519073558aed4d88a79d8d07622a9a644946c7319c4
+        env:
+          # Disposable runner only, bound to loopback. Setting a password keeps
+          # SCRAM on for TCP, so the derived role passwords are really checked.
+          POSTGRES_PASSWORD: disposable-ci-superuser
+        ports:
+          - 127.0.0.1:5432:5432
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    defaults:
+      run:
+        shell: bash
+    env:
+      IMAGE: privacyshield-all-in-one:ci
+      BASE_URL: http://127.0.0.1:10000
+      ADMIN_EMAIL: ci-admin@example.com
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Build the image from the repository root
+        run: docker build -f Dockerfile -t "$IMAGE" .
+      - name: Image contents
+        run: |
+          test "$(docker run --rm "$IMAGE" id -u)" = "10001"
+          docker run --rm "$IMAGE" test -s /app/static/index.html
+          docker run --rm "$IMAGE" sh -c 'ls /app/static/assets/*.js > /dev/null'
+          docker run --rm "$IMAGE" test -f /app/scripts/render/start-all.sh
+          docker run --rm "$IMAGE" sh -c 'test "$STATIC_DIR" = /app/static && test "$JOB_RUNNER" = inline'
+          # Development tools stay out of the production image.
+          docker run --rm "$IMAGE" python -c "import importlib.util as u, sys; sys.exit(u.find_spec('pytest') is not None)"
+      - name: Create the non-superuser admin a managed platform provides
+        env:
+          PG_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          DB_ADMIN_PASSWORD="$(openssl rand -hex 16)"
+          APP_SECRET="$(openssl rand -hex 32)"
+          ADMIN_PASSWORD="$(openssl rand -hex 12)"
+          for value in "$DB_ADMIN_PASSWORD" "$APP_SECRET" "$ADMIN_PASSWORD"; do
+            echo "::add-mask::$value"
+          done
+          docker exec -i -u postgres "$PG_CONTAINER" \
+            psql -v ON_ERROR_STOP=1 -v admin_password="$DB_ADMIN_PASSWORD" <<'SQL'
+          CREATE ROLE render_admin LOGIN CREATEDB CREATEROLE PASSWORD :'admin_password';
+          CREATE DATABASE render_main OWNER render_admin;
+          SQL
+          {
+            echo "DB_ADMIN_PASSWORD=$DB_ADMIN_PASSWORD"
+            echo "APP_SECRET=$APP_SECRET"
+            echo "ADMIN_PASSWORD=$ADMIN_PASSWORD"
+          } >> "$GITHUB_ENV"
+      - name: Start the container with only the variables a deployment sets
+        run: |
+          docker run -d --name privacyshield --network host \
+            -e PORT=10000 \
+            -e CONTROL_ADMIN_URL="postgresql://render_admin:${DB_ADMIN_PASSWORD}@127.0.0.1:5432/render_main" \
+            -e BOOTSTRAP_DB_SSLMODE=disable \
+            -e APP_SECRET -e ADMIN_EMAIL -e ADMIN_PASSWORD \
+            "$IMAGE"
+      - name: Health, readiness, frontend, sign-in and a real scan over HTTP
+        run: |
+          python3 scripts/check_hosted.py --base-url "$BASE_URL" --email "$ADMIN_EMAIL" --scan --wait 180
+          test "$(curl -fsS "$BASE_URL/health")" = "ok"
+          curl -fsS "$BASE_URL/api/v1/health/ready" | grep -F '"redis":"not_used"'
+      - name: Startup log says what happened and holds no secret
+        run: |
+          docker logs privacyshield > "$RUNNER_TEMP/container.log" 2>&1
+          for line in \
+            "Bootstrap: the admin user is not a superuser" \
+            "Bootstrap: creating database enterprise_demo" \
+            "Bootstrap: control database is now owned by ps_migrator" \
+            "Bootstrap complete." \
+            "Administrator created" \
+            "Demo connection registered" \
+            "Serving frontend from /app/static, jobs run in-process" \
+            "Job started: scan"; do
+            grep -qF -- "$line" "$RUNNER_TEMP/container.log" || { echo "Missing log line: $line"; exit 1; }
+          done
+          for value in "$DB_ADMIN_PASSWORD" "$APP_SECRET" "$ADMIN_PASSWORD"; do
+            if grep -qF -- "$value" "$RUNNER_TEMP/container.log"; then
+              echo "A secret reached the container log"; exit 1
+            fi
+          done
+      - name: A restart finds everything in place
+        run: |
+          docker restart privacyshield
+          python3 scripts/check_hosted.py --base-url "$BASE_URL" --email "$ADMIN_EMAIL" --wait 180
+          docker logs privacyshield 2>&1 | grep -F "Administrator already exists"
+          docker logs privacyshield 2>&1 | grep -F "Demo connection already registered"
+      - name: Container log
+        if: always()
+        run: docker logs privacyshield 2>&1 | tail -n 200 || true
