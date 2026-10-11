@@ -2,6 +2,11 @@
 
 Pure functions only: no database access and no source-row reads. Every exposed
 column receives an explicit decision; columns without a rule become typed NULL.
+
+A policy holds decisions for up to three fixed audiences. Each audience that has
+a view gets its own statement, view name and target role. The general "reader"
+audience always has a view; another audience has one only when the policy holds
+at least one rule for it.
 """
 
 import hashlib
@@ -15,7 +20,21 @@ VIEW_SCHEMA = "privacyshield_masked"
 PRIVATE_SCHEMA = "privacyshield_private"
 VIEW_OWNER_ROLE = "ps_view_owner"
 VIEW_READER_ROLE = "ps_reader"
+READER_AUDIENCE = "reader"
+# Audience -> the target role that may read that audience's view. A fixed
+# mapping: an audience value from a request or a stored rule only ever selects
+# an entry here, and nothing else about it reaches compiled SQL.
+AUDIENCE_ROLES = {
+    READER_AUDIENCE: VIEW_READER_ROLE,
+    "support": "ps_support",
+    "analyst": "ps_analyst",
+}
+AUDIENCES = tuple(AUDIENCE_ROLES)
 MAX_IDENTIFIER = 63
+_DIGEST_CHARS = 12
+_IDENTIFIER_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_$]{0,62}")
+# A reader view name always ends in an underscore and twelve hex digits.
+_READER_VIEW_SHAPE = re.compile(r".*_[0-9a-f]{12}")
 _DOMAIN_PATTERN = re.compile(r"^[a-z0-9_]{1,60}$")
 _DATA_TYPE_PATTERN = re.compile(r"^[A-Za-z0-9_ .,()\[\]]{1,96}$")
 # Shown when a value does not have the shape its mask expects. Nothing from the
@@ -44,7 +63,25 @@ class ColumnDecision:
 
 
 @dataclass
+class AudienceView:
+    """One audience's masked view: who reads it, its name, columns and statement."""
+
+    audience: str
+    role: str
+    view_name: str
+    columns: list[ColumnDecision] = field(default_factory=list)
+    sql: str = ""
+
+
+@dataclass
 class CompiledPlan:
+    """A compiled policy.
+
+    ``view_name``, ``columns`` and ``sql`` describe the reader view, as they did
+    before audiences existed. ``views`` holds every audience that has a view,
+    reader first, and ``statements`` holds their statements in the same order.
+    """
+
     view_schema: str
     view_name: str
     source_schema: str
@@ -53,6 +90,15 @@ class CompiledPlan:
     statements: list[str] = field(default_factory=list)
     sql: str = ""
     plan_hash: str = ""
+    views: list[AudienceView] = field(default_factory=list)
+
+    @property
+    def audiences(self) -> list[str]:
+        return [view.audience for view in self.views]
+
+    def view_for(self, audience: str) -> AudienceView | None:
+        """The view of one audience, or ``None`` when the policy gives it none."""
+        return next((view for view in self.views if view.audience == audience), None)
 
 
 def quote_ident(name: str) -> str:
@@ -64,15 +110,35 @@ def _qualified(schema: str, name: str) -> str:
     return f"{quote_ident(schema)}.{quote_ident(name)}"
 
 
-def view_name_for(source_schema: str, source_table: str) -> str:
-    """Deterministically derive a view name from schema and table.
+def view_name_for(
+    source_schema: str, source_table: str, audience: str = READER_AUDIENCE
+) -> str:
+    """Deterministically derive a view name from schema, table and audience.
 
     Stable across versions so a newer policy replaces the same view, and stable
     across processes (unlike Python's randomized hash()).
+
+    The reader view is ``<table>_<digest>``. Another audience's view is
+    ``<table>_<digest>_<audience>`` with the same digest and a shorter table
+    prefix, so it also fits in 63 characters. A reader name ends in an
+    underscore and twelve hex digits. The last twelve characters of the other
+    names include the underscore before the audience, so they never have that
+    shape and the two cannot be equal, for this table or any other.
     """
+    if audience not in AUDIENCE_ROLES:
+        raise CompileError("Unknown audience")
     digest = hashlib.sha256(f"{source_schema}\x00{source_table}".encode()).hexdigest()
-    prefix = source_table[: MAX_IDENTIFIER - 1 - 12]
-    return f"{prefix}_{digest[:12]}"
+    digest = digest[:_DIGEST_CHARS]
+    if audience == READER_AUDIENCE:
+        prefix = source_table[: MAX_IDENTIFIER - 1 - _DIGEST_CHARS]
+        return f"{prefix}_{digest}"
+    suffix = f"_{digest}_{audience}"
+    return f"{source_table[: MAX_IDENTIFIER - len(suffix)]}{suffix}"
+
+
+for _audience in AUDIENCES[1:]:
+    # Guards the claim above against a future audience with a long hex name.
+    assert not _READER_VIEW_SHAPE.fullmatch(f"t_{'0' * _DIGEST_CHARS}_{_audience}"), _audience
 
 
 def _pseudonym_expr(domain: str, source_column: str) -> str:
@@ -181,7 +247,7 @@ def _compile_column_expr(decision: ColumnDecision) -> str:
 
 def _validate(decision: ColumnDecision) -> None:
     for identifier in (decision.name, decision.source_column or decision.name):
-        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_$]{0,62}", identifier):
+        if not _IDENTIFIER_PATTERN.fullmatch(identifier):
             raise CompileError("Column names must be simple PostgreSQL identifiers")
     if not _DATA_TYPE_PATTERN.fullmatch(decision.data_type):
         raise CompileError("Column data type is not permitted in compiled SQL")
@@ -190,50 +256,114 @@ def _validate(decision: ColumnDecision) -> None:
         _pseudonym_expr(domain, decision.source_column or decision.name)
 
 
+def _view_statement(
+    view_name: str, source_schema: str, source_table: str, columns: list[ColumnDecision]
+) -> str:
+    target = _qualified(VIEW_SCHEMA, view_name)
+    source = _qualified(source_schema, source_table)
+    select_list = ",\n".join(_compile_column_expr(decision) for decision in columns)
+    return (
+        f"CREATE OR REPLACE VIEW {target} WITH (security_barrier = true) AS\n"
+        f"SELECT\n{select_list}\nFROM {source}"
+    )
+
+
+def _hashed_columns(columns: list[ColumnDecision]) -> list[dict]:
+    return [
+        {
+            "name": c.name,
+            "source_column": c.source_column or c.name,
+            "action": c.action,
+            "pseudonym_domain": c.pseudonym_domain,
+        }
+        for c in columns
+    ]
+
+
 def compile_plan(
     *,
     source_schema: str,
     source_table: str,
     columns: list[ColumnDecision],
     view_name: str | None = None,
+    audience_columns: dict[str, list[ColumnDecision]] | None = None,
 ) -> CompiledPlan:
-    """Compile column decisions into a complete security-barrier view statement."""
+    """Compile column decisions into security-barrier view statements.
+
+    ``columns`` are the reader's decisions and always produce the reader view.
+    ``audience_columns`` maps each other audience that has rules to its full
+    list of decisions; an audience left out gets no view. Without it the result
+    is exactly the single-audience plan compiled before audiences existed, with
+    the same SQL and the same fingerprint.
+    """
     if not columns:
         raise CompileError("At least one column decision is required")
+    audience_columns = audience_columns or {}
+    for audience, decisions in audience_columns.items():
+        # Checked before anything is generated: an unknown audience never
+        # reaches a view name, a role name, or any other SQL.
+        if audience not in AUDIENCE_ROLES or audience == READER_AUDIENCE:
+            raise CompileError("Unknown audience")
+        if not decisions:
+            raise CompileError("At least one column decision is required")
     for decision in columns:
         _validate(decision)
+    for decisions in audience_columns.values():
+        for decision in decisions:
+            _validate(decision)
 
     vname = view_name or view_name_for(source_schema, source_table)
-    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_$]{0,62}", vname):
+    if not _IDENTIFIER_PATTERN.fullmatch(vname):
         raise CompileError("View name must be a simple PostgreSQL identifier")
-    target = _qualified(VIEW_SCHEMA, vname)
-    source = _qualified(source_schema, source_table)
-    select_list = ",\n".join(_compile_column_expr(decision) for decision in columns)
+    statement = _view_statement(vname, source_schema, source_table, columns)
+    views = [
+        AudienceView(
+            audience=READER_AUDIENCE,
+            role=VIEW_READER_ROLE,
+            view_name=vname,
+            columns=list(columns),
+            sql=statement,
+        )
+    ]
+    # Fixed audience order, whatever order the caller's mapping has.
+    for audience in AUDIENCES:
+        if audience not in audience_columns:
+            continue
+        name = view_name_for(source_schema, source_table, audience)
+        if not _IDENTIFIER_PATTERN.fullmatch(name):
+            raise CompileError("View name must be a simple PostgreSQL identifier")
+        decisions = list(audience_columns[audience])
+        views.append(
+            AudienceView(
+                audience=audience,
+                role=AUDIENCE_ROLES[audience],
+                view_name=name,
+                columns=decisions,
+                sql=_view_statement(name, source_schema, source_table, decisions),
+            )
+        )
+    if len({view.view_name for view in views}) != len(views):
+        raise CompileError("Audience view names must be distinct")
 
-    statement = (
-        f"CREATE OR REPLACE VIEW {target} WITH (security_barrier = true) AS\n"
-        f"SELECT\n{select_list}\nFROM {source}"
-    )
-
-    plan_content = json.dumps(
-        {
-            "source_schema": source_schema,
-            "source_table": source_table,
-            "view_schema": VIEW_SCHEMA,
-            "view_name": vname,
-            "columns": [
-                {
-                    "name": c.name,
-                    "source_column": c.source_column or c.name,
-                    "action": c.action,
-                    "pseudonym_domain": c.pseudonym_domain,
-                }
-                for c in columns
-            ],
-        },
-        sort_keys=True,
-        separators=(",", ":"),
-    )
+    content: dict = {
+        "source_schema": source_schema,
+        "source_table": source_table,
+        "view_schema": VIEW_SCHEMA,
+        "view_name": vname,
+        "columns": _hashed_columns(columns),
+    }
+    if len(views) > 1:
+        # Added only when another audience has a view, so a reader-only policy
+        # keeps the fingerprint it was approved with before audiences existed.
+        content["audiences"] = {
+            view.audience: {
+                "role": view.role,
+                "view_name": view.view_name,
+                "columns": _hashed_columns(view.columns),
+            }
+            for view in views[1:]
+        }
+    plan_content = json.dumps(content, sort_keys=True, separators=(",", ":"))
     plan_hash = hashlib.sha256(plan_content.encode("utf-8")).hexdigest()
 
     return CompiledPlan(
@@ -242,9 +372,10 @@ def compile_plan(
         source_schema=source_schema,
         source_table=source_table,
         columns=list(columns),
-        statements=[statement],
+        statements=[view.sql for view in views],
         sql=statement,
         plan_hash=plan_hash,
+        views=views,
     )
 
 

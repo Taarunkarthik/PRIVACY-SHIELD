@@ -8,6 +8,7 @@ from app.api.dependencies import current_user, require_roles
 from app.core.database import get_db
 from app.models import User
 from app.schemas.policies import (
+    Audience,
     AuditEventPage,
     DeploymentPage,
     DeploymentResponse,
@@ -52,6 +53,9 @@ def _handle_failure(exc: PolicyFailure) -> None:
         "POLICY_NOT_APPROVED": 409,
         "POLICY_NOT_DEPLOYED": 409,
         "ACCESS_VERIFICATION_FAILED": 409,
+        "AUDIENCE_ROLE_MISSING": 409,
+        "AUDIENCE_VIEW_IN_USE": 409,
+        "AUDIENCE_NOT_IN_POLICY": 404,
         "POLICY_NOT_FOUND": 404,
         "INVALID_TRANSITION": 409,
         "INSUFFICIENT_PERMISSIONS": 403,
@@ -190,11 +194,13 @@ def deploy_policy_endpoint(
 @router.get("/policies/{policy_id}/preview", response_model=PolicyPreview)
 def preview_policy(
     policy_id: UUID,
+    audience: Audience = "reader",
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> PolicyPreview:
+    """The compiled view for one audience; 404 if the policy gives that audience none."""
     try:
-        return get_policy_preview(db, policy_id)
+        return get_policy_preview(db, policy_id, audience)
     except PolicyFailure as exc:
         _handle_failure(exc)
 
@@ -202,12 +208,13 @@ def preview_policy(
 @router.get("/policies/{policy_id}/preview/samples", response_model=PolicySamples)
 def preview_policy_samples(
     policy_id: UUID,
+    audience: Audience = "reader",
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> PolicySamples:
     """Before/after illustration on fabricated values; reads no source rows."""
     try:
-        return illustrative_samples(db, policy_id)
+        return illustrative_samples(db, policy_id, audience)
     except PolicyFailure as exc:
         _handle_failure(exc)
 
@@ -215,12 +222,13 @@ def preview_policy_samples(
 @router.get("/policies/{policy_id}/protected-output", response_model=ProtectedOutput)
 def get_protected_output(
     policy_id: UUID,
+    audience: Audience = "reader",
     user: User = Depends(require_roles("ADMIN")),
     db: Session = Depends(get_db),
 ) -> ProtectedOutput:
-    """A few rows through the deployed view, with the reader role's access facts."""
+    """A few rows through one audience's deployed view, with its role's access facts."""
     try:
-        return protected_output(db, user, policy_id)
+        return protected_output(db, user, policy_id, audience)
     except PolicyFailure as exc:
         _handle_failure(exc)
 

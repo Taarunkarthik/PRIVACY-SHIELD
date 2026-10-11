@@ -195,6 +195,15 @@ def provision_target(
         connection.execute("GRANT USAGE ON SCHEMA extensions TO ps_view_owner, ps_reader")
         connection.execute("GRANT USAGE ON SCHEMA enterprise TO ps_scanner, ps_view_owner")
         connection.execute("GRANT USAGE ON SCHEMA privacyshield_masked TO ps_reader")
+        # Masking audiences (docs/masking-audiences.md): passwordless group roles
+        # an operator grants to their own users. Created once, never altered.
+        for audience_role in ("ps_support", "ps_analyst"):
+            if not _role_exists(connection, audience_role):
+                connection.execute(
+                    f"CREATE ROLE {audience_role} NOLOGIN NOSUPERUSER NOCREATEDB"
+                    " NOCREATEROLE NOBYPASSRLS"
+                )
+            connection.execute(f"GRANT USAGE ON SCHEMA privacyshield_masked TO {audience_role}")
         for role, timeout in (("ps_scanner", "10s"), ("ps_deployer", "30s"), ("ps_reader", "10s")):
             connection.execute(f"ALTER ROLE {role} SET statement_timeout = '{timeout}'")
         connection.execute("ALTER ROLE ps_scanner SET default_transaction_read_only = on")

@@ -7,6 +7,9 @@ CREATE ROLE ps_scanner LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS PAS
 CREATE ROLE ps_view_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
 CREATE ROLE ps_deployer LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS PASSWORD :'deployer_password';
 CREATE ROLE ps_reader LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS PASSWORD :'reader_password';
+-- Masking audiences (docs/masking-audiences.md): group roles an operator grants to their own users.
+CREATE ROLE ps_support NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+CREATE ROLE ps_analyst NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
 GRANT ps_view_owner TO ps_deployer;
 REVOKE ALL ON DATABASE enterprise_demo FROM PUBLIC;
 GRANT CONNECT ON DATABASE enterprise_demo TO ps_scanner, ps_deployer, ps_reader;
@@ -18,7 +21,7 @@ CREATE SCHEMA extensions;
 CREATE EXTENSION pgcrypto WITH SCHEMA extensions;
 GRANT USAGE ON SCHEMA extensions TO ps_view_owner, ps_reader;
 GRANT USAGE ON SCHEMA enterprise TO ps_scanner, ps_view_owner;
-GRANT USAGE ON SCHEMA privacyshield_masked TO ps_reader;
+GRANT USAGE ON SCHEMA privacyshield_masked TO ps_reader, ps_support, ps_analyst;
 ALTER ROLE ps_scanner SET default_transaction_read_only = on;
 ALTER ROLE ps_scanner SET statement_timeout = '10s';
 ALTER ROLE ps_deployer SET statement_timeout = '30s';

@@ -265,16 +265,19 @@ class MaskingPolicy(Entity, Base):
 class PolicyRule(Entity, Base):
     __tablename__ = "policy_rules"
     __table_args__ = (
-        UniqueConstraint("policy_id", "column_name"),
+        # One decision per column for each audience.
+        UniqueConstraint("policy_id", "column_name", "audience"),
         CheckConstraint(
             "action IN ('KEEP','REDACT','PARTIAL','MASK_EMAIL','MASK_PHONE','MASK_ID',"
             "'PSEUDONYMIZE','NULLIFY','RESTRICT')",
             name="valid_action",
         ),
+        CheckConstraint("audience IN ('reader','support','analyst')", name="valid_audience"),
     )
 
     policy_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("masking_policies.id"), index=True)
     column_name: Mapped[str] = mapped_column(String(63))
+    audience: Mapped[str] = mapped_column(Text, default="reader", server_default="reader")
     action: Mapped[str] = mapped_column(String(16))
     pseudonym_domain: Mapped[str | None] = mapped_column(String(120))
     classification_id: Mapped[uuid.UUID | None] = mapped_column(

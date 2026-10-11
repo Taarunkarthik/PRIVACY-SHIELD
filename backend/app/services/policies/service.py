@@ -32,6 +32,8 @@ from app.schemas.policies import (
     PolicyRuleResponse,
 )
 from app.services.policies.compiler import (
+    READER_AUDIENCE,
+    AudienceView,
     ColumnDecision,
     CompiledPlan,
     CompileError,
@@ -86,30 +88,48 @@ def build_plan(db: Session, policy: MaskingPolicy) -> CompiledPlan:
         raise PolicyFailure("SCHEMA_DRIFT")
     if len(columns) > MAX_PLAN_COLUMNS:
         raise PolicyFailure("TABLE_TOO_WIDE")
-    rules = {
-        rule.column_name: rule
-        for rule in db.scalars(select(PolicyRule).where(PolicyRule.policy_id == policy.id))
-    }
-    decisions = []
-    for column in columns:
-        rule = rules.get(column["name"])
-        decisions.append(
+    rules: dict[str, dict[str, PolicyRule]] = {}
+    for rule in db.scalars(select(PolicyRule).where(PolicyRule.policy_id == policy.id)):
+        rules.setdefault(rule.audience, {})[rule.column_name] = rule
+
+    def decisions(audience: str) -> list[ColumnDecision]:
+        # Within one audience's view, a column without a rule for it is NULL.
+        own = rules.get(audience, {})
+        return [
             ColumnDecision(
                 name=column["name"],
                 data_type=column["data_type"],
-                action=rule.action if rule else "NULLIFY",
-                pseudonym_domain=rule.pseudonym_domain if rule else None,
+                action=own[column["name"]].action if column["name"] in own else "NULLIFY",
+                pseudonym_domain=(
+                    own[column["name"]].pseudonym_domain if column["name"] in own else None
+                ),
                 source_column=column["name"],
             )
-        )
+            for column in columns
+        ]
+
     try:
         return compile_plan(
             source_schema=policy.schema_name,
             source_table=policy.table_name,
-            columns=decisions,
+            # The reader always has a view, even with no rule of its own.
+            columns=decisions(READER_AUDIENCE),
+            # Another audience has a view only if it has at least one rule. The
+            # compiler rejects an audience outside the fixed set.
+            audience_columns={
+                audience: decisions(audience) for audience in rules if audience != READER_AUDIENCE
+            },
         )
     except CompileError as exc:
         raise PolicyFailure("INVALID_PLAN") from exc
+
+
+def audience_view(plan: CompiledPlan, audience: str) -> AudienceView:
+    """One audience's view of a compiled policy, or a bounded failure if it has none."""
+    view = plan.view_for(audience)
+    if view is None:
+        raise PolicyFailure("AUDIENCE_NOT_IN_POLICY")
+    return view
 
 
 def _next_version(db: Session, connection_id: UUID, schema_name: str, table_name: str) -> int:
@@ -135,13 +155,14 @@ def create_policy(db: Session, user: User, payload: PolicyCreate) -> MaskingPoli
     if columns is None:
         raise PolicyFailure("TABLE_NOT_FOUND")
     known = {column["name"] for column in columns}
-    seen: set[str] = set()
+    # A column may have one rule per audience.
+    seen: set[tuple[str, str]] = set()
     for rule in payload.rules:
         if rule.column_name not in known:
             raise PolicyFailure("UNKNOWN_COLUMN")
-        if rule.column_name in seen:
+        if (rule.column_name, rule.audience) in seen:
             raise PolicyFailure("DUPLICATE_RULE")
-        seen.add(rule.column_name)
+        seen.add((rule.column_name, rule.audience))
 
     policy = MaskingPolicy(
         connection_id=payload.connection_id,
@@ -160,6 +181,7 @@ def create_policy(db: Session, user: User, payload: PolicyCreate) -> MaskingPoli
         PolicyRule(
             policy_id=policy.id,
             column_name=rule.column_name,
+            audience=rule.audience,
             action=rule.action,
             pseudonym_domain=rule.pseudonym_domain,
             classification_id=rule.classification_id,
@@ -324,17 +346,21 @@ def deploy_policy(
     return deployment
 
 
-def get_policy_preview(db: Session, policy_id: UUID) -> PolicyPreview:
+def get_policy_preview(
+    db: Session, policy_id: UUID, audience: str = READER_AUDIENCE
+) -> PolicyPreview:
+    """The compiled view of one audience, and which audiences the policy has views for."""
     policy = db.get(MaskingPolicy, policy_id)
     if policy is None:
         raise PolicyFailure("POLICY_NOT_FOUND")
     plan = build_plan(db, policy)
+    view = audience_view(plan, audience)
     return PolicyPreview(
         policy_id=policy.id,
         schema_name=policy.schema_name,
         table_name=policy.table_name,
         view_schema=plan.view_schema,
-        view_name=plan.view_name,
+        view_name=view.view_name,
         columns=[
             PolicyPreviewColumn(
                 name=c.name,
@@ -343,9 +369,12 @@ def get_policy_preview(db: Session, policy_id: UUID) -> PolicyPreview:
                 pseudonym_domain=c.pseudonym_domain,
                 source_column=c.source_column or c.name,
             )
-            for c in plan.columns
+            for c in view.columns
         ],
-        sql=plan.sql,
+        sql=view.sql,
+        audience=view.audience,
+        role=view.role,
+        audiences=plan.audiences,
     )
 
 
@@ -369,6 +398,7 @@ def _policy_response(db: Session, policy: MaskingPolicy) -> PolicyResponse:
                 action=r.action,
                 pseudonym_domain=r.pseudonym_domain,
                 classification_id=r.classification_id,
+                audience=r.audience,
             )
             for r in rules
         ],
