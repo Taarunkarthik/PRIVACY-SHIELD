@@ -1,0 +1,97 @@
+/*
+ * Workspace overview. Four totals, then four panels, sized so the whole page
+ * fits one 1440x900 screen. Amber marks what scans found exposed, mint what a
+ * deployed policy masks; values and labels stay in text colours.
+ */
+.page-content.dashboard { padding-bottom: 20px; }
+.stats-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 14px; }
+.stat-card { padding: 13px 18px 12px; }
+.stat-top { display: flex; align-items: center; gap: 10px; }
+.stat-icon { display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; flex-shrink: 0; border-radius: var(--radius-s); background: var(--tint); color: var(--text-2); }
+.stat-label { font-size: 13px; font-weight: 500; color: var(--text-2); }
+.stat-number { min-height: 38px; margin: 5px 0 0; font-size: 32px; font-weight: 600; line-height: 1.18; letter-spacing: -.02em; }
+.stat-detail { font-size: 12px; color: var(--text-3); }
+
+/* Tones shared by the totals and the pipeline shortcuts. */
+.tone-exposed .stat-icon, .activity-icon.tone-exposed { background: var(--amber-soft); color: var(--amber); }
+.tone-masked .stat-icon, .activity-icon.tone-masked { background: var(--mint-soft); color: var(--mint); }
+
+.dashboard-grid { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 14px; }
+.dashboard .panel-heading { padding: 14px 20px 10px; }
+.dashboard .panel-footnote { padding: 8px 20px 10px; }
+.dashboard-grid > .panel { display: flex; flex-direction: column; min-width: 0; }
+
+/* One-hue bars on a shared baseline, value at the bar end. */
+.bar-chart { padding: 0 20px 12px 12px; }
+.chart-note { padding: 0 20px 14px; font-size: 12px; line-height: 1.55; color: var(--text-3); }
+.chart-note.quiet { padding-top: 4px; font-size: 13px; }
+
+/* Protection coverage: one bar split into masked and still-exposed columns. */
+.coverage { margin: 0 20px 12px; }
+.coverage-figure { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; margin-bottom: 8px; }
+.coverage-figure strong { font-size: 28px; font-weight: 600; line-height: 1.1; letter-spacing: -.02em; }
+.coverage-figure span { font-size: 13px; color: var(--text-2); }
+.coverage-track { display: flex; gap: 2px; height: 12px; }
+.coverage-track span { display: block; min-width: 4px; height: 100%; }
+.coverage-track span:first-child { border-radius: 4px 0 0 4px; }
+.coverage-track span:last-child { border-radius: 0 4px 4px 0; }
+.coverage-track span:only-child { border-radius: 4px; }
+.coverage-masked { background: var(--mark-masked); }
+.coverage-exposed { background: var(--mark-exposed); }
+.coverage-key { display: flex; flex-wrap: wrap; gap: 4px 18px; margin: 8px 0 0; padding: 0; list-style: none; font-size: 13px; color: var(--text-2); }
+.coverage-key li { display: flex; align-items: center; gap: 7px; }
+.coverage-key .key-dot.masked { background: var(--mark-masked); }
+.coverage-key .key-dot.exposed { background: var(--mark-exposed); }
+
+/* Policy pipeline */
+.status-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0 20px 10px; }
+.status-row div { flex: 1 1 auto; min-width: 0; padding: 7px 10px; border: 1px solid var(--line); border-radius: var(--radius-s); }
+.status-row dt { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.status-row dt .key-dot { width: 7px; height: 7px; }
+.status-row dd { margin: 2px 0 0; font-size: 22px; font-weight: 600; line-height: 1.2; }
+.pipeline-links { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 0 20px 12px; }
+.activity-row { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 7px 10px 7px 12px; border: 1px solid var(--line); border-radius: var(--radius-s); background: var(--raised); }
+.activity-row:hover { background: var(--raised-hover); border-color: var(--line-strong); }
+.activity-row > span:nth-child(2) { min-width: 0; }
+.activity-icon { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; flex-shrink: 0; border-radius: var(--radius-s); background: var(--tint); color: var(--text-2); }
+.activity-row strong { display: block; font-size: 14px; font-weight: 600; }
+.activity-row small { display: block; font-size: 12px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.activity-row:hover small { color: var(--text-2); }
+.activity-row b { margin-left: auto; font-size: 20px; font-weight: 600; }
+.activity-row > svg { flex-shrink: 0; color: var(--text-3); }
+
+/* Recent activity */
+.activity-panel .panel-heading .text-link { font-size: 13px; white-space: nowrap; margin-top: 2px; }
+.event-list { display: grid; margin: 0; padding: 0 20px 10px; list-style: none; }
+.event-list li { display: grid; grid-template-columns: 8px minmax(0, 1fr) auto; align-items: center; gap: 11px; padding: 4px 0; border-bottom: 1px solid var(--line); font-size: 14px; color: var(--text); }
+.event-list li:last-child { border-bottom: 0; }
+.event-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-3); }
+.event-list time { font-size: 12px; color: var(--text-3); white-space: nowrap; }
+
+@media (min-width: 1650px) {
+  .stat-card { padding: 20px 22px; }
+  .stat-number { font-size: 40px; }
+}
+
+@media (max-width: 1200px) {
+  .bar-chart { padding-left: 8px; }
+}
+
+@media (max-width: 900px) {
+  .dashboard-grid { grid-template-columns: minmax(0, 1fr); }
+  .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 700px) {
+  .stats-grid, .dashboard-grid { gap: 12px; }
+  .stats-grid { margin-bottom: 12px; }
+  .stat-card { padding: 13px 14px; }
+  .stat-number { font-size: 30px; min-height: 36px; }
+  .dashboard .refresh-button { font-size: 0; gap: 0; padding: 8px 10px; }
+  .pipeline-links { grid-template-columns: minmax(0, 1fr); }
+  .dashboard .panel-heading { padding: 14px 16px 10px; }
+  .dashboard .panel-footnote { padding: 8px 16px 10px; }
+  .bar-chart { padding: 0 12px 10px 4px; }
+  .coverage { margin: 0 16px 12px; }
+  .chart-note, .status-row, .pipeline-links, .event-list { padding-left: 16px; padding-right: 16px; }
+}
