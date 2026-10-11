@@ -103,6 +103,58 @@ def test_an_explicit_admin_url_wins_and_the_older_variable_name_is_understood(ru
     assert handed["CONTROL_ADMIN_URL"] == OWNER_URL
 
 
+@pytest.mark.parametrize(
+    "direct_name",
+    ["STORAGE_URL_UNPOOLED", "STORAGE_DATABASE_URL_UNPOOLED", "MYDB_POSTGRES_URL_NON_POOLING"],
+)
+def test_a_custom_prefix_on_the_integration_is_understood(run, direct_name):
+    """Connecting the database with a prefix renames every variable it injects."""
+    prefix = direct_name.split("_", 1)[0]
+    prefixed = {
+        f"{prefix}_URL": POOLED_URL,
+        direct_name: OWNER_URL,
+        f"{prefix}_PGHOST": "ep-demo-123-pooler.us-east-1.aws.neon.tech",
+        f"{prefix}_PGHOST_UNPOOLED": "ep-demo-123.us-east-1.aws.neon.tech",  # Not a URL.
+        f"{prefix}_PGUSER": "neondb_owner",
+        f"{prefix}_PGPASSWORD": "Own3rPassw0rd",
+        f"{prefix}_POSTGRES_PRISMA_URL": POOLED_URL + "?pgbouncer=true",
+        f"{prefix}_SOMETHING_ELSE": "token-Own3rPassw0rd-inside",
+    }
+    separate_target = "postgresql://target_admin:T4rgetSecret@target.example.test/enterprise_demo"
+    keep = {"APP_SECRET": "s" * 40, "ADMIN_PASSWORD": "a-long-admin-password", "PORT": "10000"}
+    result, handed = run(prefixed | keep | {"TARGET_ADMIN_URL": separate_target})
+    assert result.returncode == 0, result.stderr
+    assert handed["CONTROL_ADMIN_URL"] == OWNER_URL
+    assert f"Using the direct database URL from {direct_name}" in result.stdout
+    # Nothing the integration injected survives, under any name.
+    assert not set(prefixed) & set(handed)
+    assert [name for name, value in handed.items() if "Own3rPassw0rd" in value] == [
+        "CONTROL_ADMIN_URL"
+    ]
+    # What the bootstrap itself reads is untouched.
+    assert handed["TARGET_ADMIN_URL"] == separate_target
+    assert {name: handed[name] for name in keep} == keep
+    # What the wrapper itself printed, before the stand-in dumped its environment.
+    printed = result.stdout.split("HANDED-OVER", 1)[0] + result.stderr
+    assert "Own3rPassw0rd" not in printed
+
+
+def test_a_prefixed_pooled_url_alone_is_refused_by_name_only(run):
+    result, handed = run({"STORAGE_URL": POOLED_URL})
+    assert result.returncode == 1 and not handed
+    assert "only a pooled database URL was found (STORAGE_URL)" in result.stderr
+    assert "Own3rPassw0rd" not in result.stderr + result.stdout
+
+
+def test_a_value_spanning_lines_cannot_inject_a_command(run, tmp_path):
+    marker = tmp_path / "ran"
+    hostile = f"first line\nX=$(touch {marker})\n`touch {marker}`=1\nB;touch {marker};=2"
+    result, handed = run(INJECTED | {"NOTE": hostile})
+    assert result.returncode == 0, result.stderr
+    assert handed["CONTROL_ADMIN_URL"] == OWNER_URL
+    assert not marker.exists()
+
+
 def test_the_projects_own_addresses_are_allowed_origins(run, monkeypatch):
     vercel = {
         "VERCEL_PROJECT_PRODUCTION_URL": "privacy-shield.vercel.app",
