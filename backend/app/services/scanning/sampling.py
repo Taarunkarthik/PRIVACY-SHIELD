@@ -24,6 +24,9 @@ ROW_BATCH_SIZE = 16
 LARGE_TABLE_BYTES = 32 * 1024 * 1024
 PAGE_BYTES = 8192
 MIN_CANDIDATE_PAGES = 256
+# A thin page sample falls back to considering every row only below this size.
+# Above it, a short sample is better than a scan that runs into the timeout.
+FULL_SCAN_LIMIT_BYTES = 256 * 1024 * 1024
 NO_PAGE_SAMPLE = sql.SQL("")
 TEXT_TYPES = {
     "text",
@@ -248,9 +251,12 @@ def sample_table(
 ):
     """Yield per-column/path aggregates, never samples or arbitrary evidence strings."""
     columns = table["columns"]
-    tablesample, ordering = row_selection(table_bytes(target, table), sample_limit, seed)
-    if tablesample != NO_PAGE_SAMPLE and page_sample_is_thin(
-        target, table, tablesample, sample_limit
+    size = table_bytes(target, table)
+    tablesample, ordering = row_selection(size, sample_limit, seed)
+    if (
+        tablesample != NO_PAGE_SAMPLE
+        and size <= FULL_SCAN_LIMIT_BYTES
+        and page_sample_is_thin(target, table, tablesample, sample_limit)
     ):
         tablesample = NO_PAGE_SAMPLE
     source = sql.Identifier(table["schema"], table["name"])
@@ -287,6 +293,7 @@ def sample_table(
             ordering,
         )
         sampled_rows = 0
+        values_read = [0] * len(group)
         with target.cursor(name="ps_scan_" + uuid.uuid4().hex, row_factory=tuple_row) as cursor:
             cursor.execute(query, (sample_limit,))
             while batch := cursor.fetchmany(ROW_BATCH_SIZE):
@@ -299,6 +306,7 @@ def sample_table(
                         stats["values_skipped"] += int(bool(skipped))
                         if value is None:
                             continue
+                        values_read[index] += 1
                         if not column["is_jsonb"]:
                             aggregates[index][""].add_row(detector(value, column["name"]))
                             continue
@@ -341,5 +349,8 @@ def sample_table(
                     "sanitized_evidence": {
                         "labels": sorted(findings.category_counts),
                         "coverage": coverage[index].copy(),
+                        # Non-null values the detector actually received. Zero
+                        # means "nothing found" says nothing about the column.
+                        "values_read": values_read[index],
                     },
                 }

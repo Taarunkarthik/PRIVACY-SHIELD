@@ -49,7 +49,7 @@ export type DashboardSummary = {
 };
 export type DashboardInsights = {
   categories: Array<{ category: string; columns: number }>;
-  risks: Array<{ risk: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW'; columns: number }>;
+  risks: Array<{ risk: 'CRITICAL' | 'HIGH' | 'MEDIUM'; columns: number }>;
   risks_from_ai: number;
   policy_status: Array<{ status: string; policies: number }>;
   coverage: { sensitive_columns: number; protected_columns: number };

@@ -18,7 +18,7 @@ stable column list.
 | `KEEP` | `"col" AS "col"` | Pass-through, original type preserved |
 | `REDACT` | `CASE WHEN "col" IS NULL THEN NULL ELSE '[REDACTED]' END` | Text output; `NULL` preserved |
 | `PARTIAL` | `CASE WHEN "col" IS NULL THEN NULL ELSE '***' \|\| right("col"::text, 4) END` | Text output; last four characters retained |
-| `MASK_EMAIL` | `left(v,1) \|\| '***' \|\| '@' \|\| <host>` when `v` is exactly one address, else `'***'` | `c***@example.com`; the part after `@` must be a plain host name |
+| `MASK_EMAIL` | `left(v,1) \|\| '***' \|\| '@' \|\| <host>` when `v` is exactly one address, else `'***'` | `c***@example.com`; the part after `@` must be a dotted host name |
 | `MASK_PHONE` | every digit but the last four replaced by `*`, punctuation kept; else `'***'` | `+** ***** *0001`; needs 8+ digits and no letters |
 | `MASK_ID` | every letter and digit but the last four replaced by `*`, separators kept; else `'***'` | `**** **** 0001`, `******001F`; for PAN, Aadhaar, card and account numbers |
 | `PSEUDONYMIZE` | `encode(extensions.hmac(convert_to("col"::text,'UTF8'), key, 'sha256'),'hex')` | Deterministic, keyed, text output |
@@ -31,10 +31,11 @@ replaced entirely with `***`, so a wrongly chosen mask hides data instead of
 leaking part of it. `NULL` stays `NULL`.
 
 For `MASK_EMAIL` the shape is strict: a local part of at most 64 characters, one
-`@`, then a host name made only of letters, digits, dots and hyphens. The host
-is shown in full, so without that rule anything following an address would be
-shown too: `a@b.com;9876543210` or a JSON string containing an address. Those are
-replaced entirely. What each mask deliberately reveals is the first character
+`@`, then a host name of dot-separated labels (letters, digits, hyphens) ending
+in letters, such as `mail.example.org`. The host is shown in full, so without
+that rule anything following the `@` would be shown too: `a@b.com;9876543210`, a
+JSON string containing an address, or `x@2345-6789-0124`. Those are replaced
+entirely. What each mask deliberately reveals is the first character
 and the host of an email, and the last four characters of a phone or ID number.
 `MASK_ID` applied to a sentence that contains a digit keeps the sentence's word
 lengths and its last four characters, so use `REDACT` for free text.
@@ -202,6 +203,9 @@ audit event. A superseded or undeployed version returns `409`.
   the recreation is refused if another database object depends on the view.
 - The policy editor pre-fills the pseudonym key domain with `demo`, the key the
   bundled target provisions. Another target needs its own domain entered.
+- "The version deployed last on a table" is worked out from connection records
+  with the same host, port and database name. Two records that name one server
+  differently (a host name and its IP address) are treated as separate targets.
 - Access verification covers the reader role's privileges on the view and its
   source table. It does not look for other routes to the data, such as a
   different view over the same table.

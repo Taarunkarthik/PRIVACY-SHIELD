@@ -77,11 +77,17 @@ def test_keep_is_suggested_only_for_fully_read_columns():
         "json_truncated": 0,
         "path_limit_reached": 0,
     }
-    assert fully_assessed(clean)
+    assert fully_assessed({"coverage": clean, "values_read": 40})
     for key in clean:
         # Any value that was skipped, cut short, or of an unreadable type means
         # "nothing found" is not evidence, so KEEP must not be suggested.
-        assert not fully_assessed(clean | {key: True if key == "unsupported_type" else 1})
+        partial = clean | {key: True if key == "unsupported_type" else 1}
+        assert not fully_assessed({"coverage": partial, "values_read": 40})
+    # A column that was NULL in every sampled row was never inspected.
+    assert not fully_assessed({"coverage": clean, "values_read": 0})
+    assert not fully_assessed({})
+    # A scan stored before the count existed is judged on coverage alone.
+    assert fully_assessed({"coverage": clean})
 
 
 def test_column_risk_is_the_highest_level_detected():
@@ -94,5 +100,6 @@ def test_column_risk_is_the_highest_level_detected():
     # An advisory classification can raise the level but never lower it.
     assert _column_risk({"PERSON": 60}, "CRITICAL") == "CRITICAL"
     assert _column_risk({"AADHAAR_CANDIDATE": 1}, "LOW") == "CRITICAL"
+    assert _column_risk({"PERSON": 5}, "LOW") == "MEDIUM"
     assert _column_risk({"CUSTOM_PII": 2}, None) == "MEDIUM"
     assert _column_risk({}, "unexpected") == "MEDIUM"

@@ -25,7 +25,9 @@ from app.services.policies.suggestions import dominant_category
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
 
-RISK_LEVELS = ("CRITICAL", "HIGH", "MEDIUM", "LOW")
+# Most to least severe. No detected category rates below MEDIUM, and an advisory
+# classification can only raise a column's level, so the breakdown has no LOW.
+RISK_LEVELS = ("CRITICAL", "HIGH", "MEDIUM")
 POLICY_STATUSES = ("DRAFT", "PENDING_APPROVAL", "APPROVED", "DEPLOYED", "REJECTED", "FAILED")
 # Risk by detected category: government and card identifiers rank above contact
 # details, which rank above names and places.
@@ -50,7 +52,7 @@ class CategoryCount(BaseModel):
 
 
 class RiskCount(BaseModel):
-    risk: Literal["CRITICAL", "HIGH", "MEDIUM", "LOW"]
+    risk: Literal["CRITICAL", "HIGH", "MEDIUM"]
     columns: int
 
 

@@ -10,6 +10,8 @@ All seven phases are delivered: the control-plane schema, authenticated API, Rea
 
 The latest verified commit is [`964686a`](https://github.com/Taarunkarthik/PRIVACY-SHIELD/commit/964686a6301fb3bf2a5bd3b5ddc1f40cd8c622ac). See [Phase 7 verification evidence](docs/verification-phase7.md) and [the delivery roadmap](docs/roadmap.md) for current status and measured limitations.
 
+After Phase 7, branch `feat/demo-readiness` adds format-aware masks for email, phone and ID numbers, a before/after policy preview on invented values, evidence of what the reader role sees through a deployed view, suggested rules from scan findings, dashboard breakdowns, random row sampling, checksum rules for Aadhaar and PAN, and a labelled accuracy benchmark. These commits passed the local suite described in the [demo-readiness verification record](docs/verification-demo-readiness.md); they have not yet run in GitHub Actions or under Docker Compose.
+
 The submission target is **12 October 2026**, with working code and a reproducible demonstration. The seven phase gates remain in place within the three-day work window; the schedule is a target, not a guarantee of completion.
 
 ## Local setup
@@ -94,6 +96,7 @@ The backend is a FastAPI modular monolith shared by API and Celery processes. A 
 - [Bounded PII scanning and demo](docs/scanning.md)
 - [Local AI classification and actual model checks](docs/classification.md)
 - [Masking policies, approval, and deployment](docs/masking.md)
+- [Detection accuracy: measured precision, recall and known false positives](docs/detection-accuracy.md)
 - [Deploying on Render](docs/deploy-render.md)
 - [Render deployment verification](docs/verification-render.md)
 - [Setup, testing, demo, and troubleshooting](docs/operations.md)
@@ -104,6 +107,7 @@ The backend is a FastAPI modular monolith shared by API and Celery processes. A 
 - [Phase 5 verification evidence](docs/verification-phase5.md)
 - [Phase 6 verification evidence](docs/verification-phase6.md)
 - [Phase 7 verification evidence](docs/verification-phase7.md)
+- [Demo-readiness verification record](docs/verification-demo-readiness.md)
 
 ## Security and delivery rules
 

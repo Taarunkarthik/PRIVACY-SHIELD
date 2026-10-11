@@ -22,8 +22,12 @@ _DATA_TYPE_PATTERN = re.compile(r"^[A-Za-z0-9_ .,()\[\]]{1,96}$")
 # source value is revealed in that case (fail closed).
 MASK_FALLBACK = "***"
 # One address: up to 64 characters with no "@" or whitespace, an "@", then a host
-# name that starts and ends with a letter or digit. POSIX classes, no backslashes.
-EMAIL_SHAPE = r"^[^@[:space:]]{1,64}@[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$"
+# name of dot-separated labels ending in a purely alphabetic one. A bare word or
+# a run of digits after the "@" is not a host. POSIX classes, no backslashes.
+EMAIL_SHAPE = (
+    r"^[^@[:space:]]{1,64}@"
+    r"([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?[.]){1,8}[A-Za-z]{2,24}$"
+)
 
 
 class CompileError(ValueError):
@@ -91,8 +95,8 @@ def _mask_email_expr(source: str) -> str:
     """Keep the first character and the domain: ``c***@example.com``.
 
     The value must be a single address and nothing else: a local part, one
-    ``@``, then a plain host name made only of letters, digits, dots and
-    hyphens. Anything else is replaced entirely. Without the host-name rule,
+    ``@``, then a dotted host name of letters, digits and hyphens that ends in
+    letters. Anything else is replaced entirely. Without the host-name rule,
     whatever followed the ``@`` would be shown, so ``a@b.com;9876543210`` or a
     JSON string holding an address would leak the rest of the value.
     """

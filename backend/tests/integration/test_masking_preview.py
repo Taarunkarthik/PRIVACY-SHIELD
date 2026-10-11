@@ -402,7 +402,7 @@ def test_dashboard_insights_match_the_overview_and_track_coverage(admin_client, 
     assert sensitive == summary["sensitive_columns"] > 0
     assert sum(item["columns"] for item in body["categories"]) == sensitive
     assert sum(item["columns"] for item in body["risks"]) == sensitive
-    assert [item["risk"] for item in body["risks"]] == ["CRITICAL", "HIGH", "MEDIUM", "LOW"]
+    assert [item["risk"] for item in body["risks"]] == ["CRITICAL", "HIGH", "MEDIUM"]
     assert 0 <= body["risks_from_ai"] <= sensitive
     assert 0 <= body["coverage"]["protected_columns"] <= sensitive
     counts = [item["columns"] for item in body["categories"]]
@@ -482,6 +482,12 @@ ADVERSARIAL_VALUES = [
     ("a@b.com\nsecret line", "***", "***", "***"),
     ("a@b.com ", "***", "***", "***"),
     ("two@signs@example.com", "***", "***", "***"),
+    # What follows the "@" must be a dotted host name ending in letters.
+    ("x@2345-6789-0124", "***", "***", "***"),
+    ("p@ssw0rd123", "***", "***", "***"),
+    ("a@b.com:5432", "***", "***", "***"),
+    ("a@b.com.", "***", "***", "***"),
+    ("a@-b.com", "***", "***", "***"),
     ("x" * 65 + "@example.com", "***", "***", "***"),
     ("名前@example.com", "名***@example.com", "***", "***"),
     ("+91 90000 00001", "***", "+** ***** *0001", "***"),
@@ -558,15 +564,17 @@ def awkward_table():
     with _connect(host, port, "postgres", passwords["superuser"]) as admin:
         try:
             admin.execute(f"CREATE SCHEMA {schema}")
+            admin.execute(f"CREATE TYPE {schema}.grade AS ENUM ('low', 'high')")
             admin.execute(
                 f"CREATE TABLE {schema}.readings (id int PRIMARY KEY, ratio numeric(3,2), "
-                "label text, payload jsonb)"
+                f"label text, payload jsonb, never_filled text, grade {schema}.grade)"
             )
             admin.execute(
                 f"INSERT INTO {schema}.readings SELECT n, 0.5, 'reading ' || n, "
-                "jsonb_build_object('blob', repeat('x', 20000)) FROM generate_series(1, 5) AS n"
+                "jsonb_build_object('blob', repeat('x', 20000)), NULL, 'low' "
+                "FROM generate_series(1, 5) AS n"
             )
-            admin.execute(f"GRANT USAGE ON SCHEMA {schema} TO ps_scanner")
+            admin.execute(f"GRANT USAGE ON SCHEMA {schema} TO ps_scanner, ps_view_owner")
             admin.execute(f"GRANT SELECT ON {schema}.readings TO ps_scanner")
             yield schema
         finally:
@@ -618,6 +626,10 @@ def test_partly_read_columns_get_no_keep_and_preview_survives_narrow_types(
     # evidence and the column must not be offered as safe to keep.
     assert by_name["payload"]["source"] == "NO_FINDINGS"
     assert by_name["payload"]["action"] is None
+    # A column that was NULL in every sampled row was never inspected either.
+    assert by_name["never_filled"]["source"] == "NO_FINDINGS"
+    assert by_name["never_filled"]["action"] is None
+    assert by_name["label"]["action"] == "KEEP"
 
     policy = admin_client.post(
         "/api/v1/policies",
@@ -642,3 +654,5 @@ def test_partly_read_columns_get_no_keep_and_preview_survives_narrow_types(
     first_after = dict(zip(names, samples["after"][0], strict=True))
     assert first_before["ratio"] is None and first_after["ratio"] is None
     assert first_before["label"] == "Sample text 1" and first_after["label"] == "[REDACTED]"
+    # The enum type lives in the source schema; the preview still resolves it.
+    assert "grade" in names and first_after["grade"] is None

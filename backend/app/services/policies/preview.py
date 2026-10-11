@@ -153,9 +153,10 @@ def _sample_columns(decisions: list[ColumnDecision]) -> list[SampleColumn]:
 def illustrative_samples(db: Session, policy_id: UUID) -> PolicySamples:
     """Run the compiled expressions over fabricated values on the target server.
 
-    The query touches no table and needs no role beyond the deployer's own
-    login, so it runs without assuming the view owner. Pseudonym columns show an
-    unkeyed digest, never a token made with the target's secret key.
+    The query reads no table. It runs as the view owner only so that column
+    types defined in the source schema (an enum, a domain) resolve as they will
+    for the deployed view. Pseudonym columns show an unkeyed digest, never a
+    token made with the target's secret key.
     """
     policy, connection, plan = _policy_context(db, policy_id)
     catalog = policy_catalog_columns(db, policy)
@@ -176,6 +177,7 @@ def illustrative_samples(db: Session, policy_id: UUID) -> PolicySamples:
         with deployer_session(connection) as target, target.transaction():
             target.execute("SET TRANSACTION READ ONLY")
             target.execute(f"SET LOCAL statement_timeout = {_PREVIEW_TIMEOUT_MS}")
+            target.execute(f"SET LOCAL ROLE {quote_ident(VIEW_OWNER_ROLE)}")
             for attempt in (inputs, text_only):
                 params = [values[row] for row in range(SAMPLE_ROWS) for values in attempt]
                 try:

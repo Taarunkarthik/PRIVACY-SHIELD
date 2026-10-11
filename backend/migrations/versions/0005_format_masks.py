@@ -35,10 +35,16 @@ def downgrade() -> None:
     # A rule is part of an approved, fingerprinted policy. Rewriting it would
     # leave approvals and deployed views describing something else, so the
     # downgrade stops instead when format-aware masks are in use.
-    in_use = op.get_bind().exec_driver_sql(
-        "SELECT count(*) FROM policy_rules "
-        "WHERE action IN ('MASK_EMAIL','MASK_PHONE','MASK_ID')"
-    ).scalar()
+    in_use = (
+        0  # Offline (--sql) rendering has no database to ask.
+        if op.get_context().as_sql
+        else op.get_bind()
+        .exec_driver_sql(
+            "SELECT count(*) FROM policy_rules "
+            "WHERE action IN ('MASK_EMAIL','MASK_PHONE','MASK_ID')"
+        )
+        .scalar()
+    )
     if in_use:
         raise RuntimeError(
             f"{in_use} policy rules use format-aware masks; "

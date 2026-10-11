@@ -154,12 +154,12 @@ export function Dashboard() {
 
     <div className="dashboard-grid">
       <section className="panel" aria-label="Policy pipeline">
-        <div className="panel-heading"><div><h2>Policy pipeline</h2><p>{policyTotal.toLocaleString()} masking {policyTotal === 1 ? 'policy version' : 'policy versions'} by lifecycle state</p></div><CircleCheck size={20} className="muted" /></div>
-        <dl className="status-row">
-          {(insights?.policy_status ?? []).map((item) => (
+        <div className="panel-heading"><div><h2>Policy pipeline</h2><p>{insights ? `${policyTotal.toLocaleString()} masking ${policyTotal === 1 ? 'policy version' : 'policy versions'} by lifecycle state` : 'Masking policy versions by lifecycle state'}</p></div><CircleCheck size={20} className="muted" /></div>
+        {!insights ? breakdownPending : <dl className="status-row">
+          {insights.policy_status.map((item) => (
             <div key={item.status}><dt>{policyStatusLabel[item.status as PolicyStatus] ?? item.status}</dt><dd>{item.policies.toLocaleString()}</dd></div>
           ))}
-        </dl>
+        </dl>}
         <Link className="activity-row" to="/approvals"><span className="activity-icon amber"><CircleCheck size={20} /></span><span><strong>Pending approvals</strong><small>Policies awaiting a decision</small></span><b>{summary?.pending_approvals.toLocaleString() ?? '—'}</b><ChevronRight size={16} /></Link>
         <Link className="activity-row" to="/scans"><span className="activity-icon blue"><ScanLine size={20} /></span><span><strong>Scan jobs</strong><small>Total discovery scans</small></span><b>{summary?.scan_jobs.toLocaleString() ?? '—'}</b><ChevronRight size={16} /></Link>
         <div className="review-note"><span className="small-check"><Check size={14} /></span><div><strong>People stay in control</strong><p>A policy needs an explicit approval, then a separate deployment action.</p></div></div>

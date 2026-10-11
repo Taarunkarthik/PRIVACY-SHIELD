@@ -24,6 +24,10 @@ test('real worker scans synthetic rows and exposes sanitized sampled findings', 
   expect(['QUEUED', 'RUNNING']).toContain(created.status);
   await expect(page).toHaveURL(new RegExp(`job=${created.id}`));
   const selected = page.getByRole('region', { name: 'Selected scan status' });
+  // Wait until the panel shows the scan just started. Until it re-renders it
+  // still shows the previously selected scan, whose "Completed" status and
+  // findings would otherwise be read in place of the new scan's.
+  await expect(selected.getByRole('heading', { name: `Scan ${created.id.slice(0, 8)}` })).toBeVisible();
   await expect(selected.getByText('Completed', { exact: true })).toBeVisible({ timeout: 240000 });
   const findings = page.getByRole('region', { name: 'Sampled scan findings' });
   await expect(findings).toBeVisible();

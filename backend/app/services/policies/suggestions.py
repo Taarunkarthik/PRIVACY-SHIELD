@@ -105,14 +105,21 @@ def ai_action(recommendation: str, category: str, column: dict) -> str:
     return "REDACT"
 
 
-def fully_assessed(coverage: dict) -> bool:
-    """Whether every sampled value of a column was read completely.
+def fully_assessed(evidence: dict) -> bool:
+    """Whether a column's sampled values were present and all read completely.
 
-    A skipped, truncated, or path-limited value was not inspected, so "nothing
-    found" for that column is not evidence that it holds no personal data.
+    A skipped, truncated, or path-limited value was not inspected, and a column
+    that was empty in every sampled row was not inspected at all. In either
+    case "nothing found" is not evidence that the column holds no personal data.
     """
+    coverage = evidence.get("coverage") or {}
     partial = ("values_skipped", "values_truncated", "json_truncated", "path_limit_reached")
-    return not coverage.get("unsupported_type") and not any(coverage.get(key) for key in partial)
+    if not coverage or coverage.get("unsupported_type"):
+        return False
+    if any(coverage.get(key) for key in partial):
+        return False
+    # Scans recorded before this count existed are judged on coverage alone.
+    return evidence.get("values_read", 1) > 0
 
 
 def _latest_completed_scan(db: Session, connection_id: UUID) -> ScanJob | None:
@@ -179,7 +186,7 @@ def suggest_rules(
             column_name=column["name"], data_type=column["data_type"], source="NOT_SCANNED"
         )
         if result is not None and result.sampled_rows > 0:
-            coverage = (result.sanitized_evidence or {}).get("coverage", {})
+            evidence = result.sanitized_evidence or {}
             classification = classifications.get(result.id)
             suggestion.sampled_rows = result.sampled_rows
             suggestion.matching_rows = result.matching_rows
@@ -204,7 +211,7 @@ def suggest_rules(
                 suggestion.source = "NO_FINDINGS"
                 # No action for a partly read column: it stays NULL unless a
                 # person decides otherwise.
-                suggestion.action = "KEEP" if coverage and fully_assessed(coverage) else None
+                suggestion.action = "KEEP" if fully_assessed(evidence) else None
             if classification is not None:
                 suggestion.classification_id = classification.id
                 suggestion.ai_recommendation = classification.recommendation

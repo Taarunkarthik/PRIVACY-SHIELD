@@ -154,7 +154,7 @@ describe('dashboard and navigation', () => {
       if (path === '/api/v1/dashboard/summary') return json(populated);
       if (path === '/api/v1/dashboard/insights') return json({
         categories: [{ category: 'EMAIL_ADDRESS', columns: 3 }, { category: 'AADHAAR_CANDIDATE', columns: 1 }],
-        risks: [{ risk: 'CRITICAL', columns: 2 }, { risk: 'HIGH', columns: 5 }, { risk: 'MEDIUM', columns: 2 }, { risk: 'LOW', columns: 0 }],
+        risks: [{ risk: 'CRITICAL', columns: 2 }, { risk: 'HIGH', columns: 5 }, { risk: 'MEDIUM', columns: 2 }],
         risks_from_ai: 0,
         policy_status: [{ status: 'DRAFT', policies: 1 }, { status: 'DEPLOYED', policies: 1 }],
         coverage: { sensitive_columns: 9, protected_columns: 6 },
@@ -169,7 +169,7 @@ describe('dashboard and navigation', () => {
     expect(categories).toHaveTextContent('Aadhaar candidate1');
     const risks = screen.getByRole('list', { name: 'Sensitive columns by risk level' });
     expect(risks).toHaveTextContent('Critical2');
-    expect(risks).toHaveTextContent('Low0');
+    expect(risks).toHaveTextContent('Medium2');
     expect(screen.getByText('6 of 9')).toBeInTheDocument();
     expect(screen.getByRole('meter', { name: 'Sensitive columns masked by a deployed policy' })).toHaveAttribute('aria-valuenow', '6');
     expect(screen.getByText('A column takes the highest risk level among the categories detected in it.')).toBeInTheDocument();
@@ -190,7 +190,7 @@ describe('dashboard and navigation', () => {
       return json({}, 500);
     });
     render(<App />);
-    expect(await screen.findAllByText('This breakdown could not be loaded. Refresh to try again.')).toHaveLength(3);
+    expect(await screen.findAllByText('This breakdown could not be loaded. Refresh to try again.')).toHaveLength(4);
     // The totals are still shown, and nothing claims there are no findings.
     expect(screen.getByText('9')).toBeInTheDocument();
     expect(screen.queryByText('No scan findings yet')).not.toBeInTheDocument();
