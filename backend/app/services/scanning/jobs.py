@@ -23,7 +23,7 @@ from app.services.discovery.catalog import (
     discover_catalog_in_session,
     target_session,
 )
-from app.services.scanning.sampling import sample_table
+from app.services.scanning.sampling import sample_seed, sample_table
 
 MAX_RESULTS = 20000
 MAX_ATTEMPTS = 3
@@ -276,8 +276,11 @@ def run_scan(job_id: UUID) -> None:
                 if catalog_fingerprint(catalog) != snapshot.fingerprint:
                     raise ScanFailure("SCHEMA_DRIFT")
                 tables = catalog["tables"]
+                # Seeded by the job: a retry of this scan reads the same rows,
+                # while a new scan reads a different random sample.
+                seed = sample_seed(str(job_id))
                 for index, table in enumerate(tables):
-                    for result in sample_table(target, table, sample_limit):
+                    for result in sample_table(target, table, sample_limit, seed=seed):
                         if len(results) >= MAX_RESULTS:
                             raise ScanFailure("RESULT_LIMIT_EXCEEDED")
                         results.append(result)

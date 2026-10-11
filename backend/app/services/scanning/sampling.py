@@ -19,6 +19,11 @@ MAX_JSON_NODES = 256
 MAX_JSON_PATHS = 32
 COLUMN_BATCH_SIZE = 16
 ROW_BATCH_SIZE = 16
+# Row selection. A table up to this size has every row considered; a larger one
+# has a random subset of its pages considered first, so cost stays bounded.
+LARGE_TABLE_BYTES = 32 * 1024 * 1024
+PAGE_BYTES = 8192
+MIN_CANDIDATE_PAGES = 256
 TEXT_TYPES = {
     "text",
     "varchar",
@@ -163,9 +168,70 @@ def projection(column: dict) -> list[sql.Composable]:
     return [sql.SQL("NULL::text"), sql.SQL("FALSE"), sql.SQL("{} IS NOT NULL").format(identifier)]
 
 
-def sample_table(target, table: dict, sample_limit: int, *, detector=detect_text):
+def sample_seed(value: str) -> int:
+    """A stable non-negative seed, so one scan draws the same rows on every query."""
+    return int.from_bytes(hashlib.sha256(value.encode()).digest()[:4], "big") >> 1
+
+
+def page_sample_percent(table_bytes: int, sample_limit: int) -> float | None:
+    """Share of pages to pre-select in a large table, or ``None`` to consider all rows.
+
+    The share aims at ``sample_limit`` pages, and never fewer than
+    ``MIN_CANDIDATE_PAGES``, so the candidates comfortably outnumber the rows kept.
+    """
+    if table_bytes <= LARGE_TABLE_BYTES:
+        return None
+    pages = max(1, table_bytes // PAGE_BYTES)
+    percent = 100 * max(sample_limit, MIN_CANDIDATE_PAGES) / pages
+    return round(percent, 6) if percent < 100 else None
+
+
+def table_bytes(target, table: dict) -> int:
+    """On-disk size of a table, summing leaf partitions for a partitioned table."""
+    row = target.execute(
+        """
+        SELECT (CASE WHEN c.relkind = 'p'
+                     THEN (SELECT COALESCE(sum(pg_catalog.pg_relation_size(t.relid)), 0)
+                           FROM pg_catalog.pg_partition_tree(c.oid) t WHERE t.isleaf)
+                     ELSE pg_catalog.pg_relation_size(c.oid) END)::bigint AS bytes
+        FROM pg_catalog.pg_class c WHERE c.oid = %s
+        """,
+        (table["oid"],),
+    ).fetchone()
+    return int(row["bytes"]) if row else 0
+
+
+def row_selection(table_size: int, sample_limit: int, seed: int) -> tuple[sql.Composable, ...]:
+    """Build the FROM-clause sampling and the ORDER BY that pick rows at random.
+
+    Rows are ordered by a seeded hash of their physical location and the first
+    ``sample_limit`` are kept. That is a uniform random sample of the rows
+    considered, it returns exactly ``sample_limit`` rows whenever the table has
+    that many, and it does not depend on planner statistics being current. The
+    earlier ``ORDER BY primary key LIMIT n`` always read the oldest rows, so a
+    column filled in only for newer rows was never seen.
+    """
+    percent = page_sample_percent(table_size, sample_limit)
+    tablesample = (
+        sql.SQL(" TABLESAMPLE SYSTEM ({}) REPEATABLE ({})").format(
+            sql.Literal(percent), sql.Literal(seed)
+        )
+        if percent is not None
+        else sql.SQL("")
+    )
+    ordering = sql.SQL(
+        "pg_catalog.hashtextextended("
+        "tableoid::pg_catalog.text || ctid::pg_catalog.text, {}), tableoid, ctid"
+    ).format(sql.Literal(seed))
+    return tablesample, ordering
+
+
+def sample_table(
+    target, table: dict, sample_limit: int, *, detector=detect_text, seed: int = 0
+):
     """Yield per-column/path aggregates, never samples or arbitrary evidence strings."""
     columns = table["columns"]
+    tablesample, ordering = row_selection(table_bytes(target, table), sample_limit, seed)
     for offset in range(0, len(columns), COLUMN_BATCH_SIZE):
         group = columns[offset : offset + COLUMN_BATCH_SIZE]
         aggregates = [{"": Findings()} for _ in group]
@@ -183,14 +249,12 @@ def sample_table(target, table: dict, sample_limit: int, *, detector=detect_text
             }
             for column in group
         ]
-        ordering = (
-            sql.SQL(", ").join(sql.Identifier(name) for name in table["primary_key"])
-            if table["primary_key"]
-            else sql.SQL("tableoid, ctid")
-        )
-        query = sql.SQL("SELECT {} FROM {} ORDER BY {} LIMIT %s").format(
+        # Every column group uses the same seed inside one repeatable-read
+        # snapshot, so all groups describe the same sampled rows.
+        query = sql.SQL("SELECT {} FROM {}{} ORDER BY {} LIMIT %s").format(
             sql.SQL(", ").join(expression for column in group for expression in projection(column)),
             sql.Identifier(table["schema"], table["name"]),
+            tablesample,
             ordering,
         )
         sampled_rows = 0
