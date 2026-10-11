@@ -169,6 +169,13 @@ export function policyAudiences(policy: Pick<Policy, 'rules'>): Audience[] {
   return AUDIENCES.filter((audience) => audience === 'reader' || policy.rules.some((rule) => (rule.audience ?? 'reader') === audience));
 }
 
+/** What to do about a failed deployment, for the codes a person can act on. */
+export const deploymentErrorHint: Record<string, string> = {
+  AUDIENCE_ROLE_MISSING: 'The target database has no role for one of this policy\'s audiences. Create ps_support and ps_analyst (see the masking audiences guide), then deploy again.',
+  AUDIENCE_VIEW_IN_USE: 'Another database object depends on a view this version removes. Drop that object, then deploy again.',
+  ACCESS_VERIFICATION_FAILED: 'A role could read more than the policy allows, so nothing was changed. Check role memberships and grants in the target database.',
+};
+
 export const actionLabel: Record<PolicyAction, string> = {
   KEEP: 'Keep',
   REDACT: 'Redact',

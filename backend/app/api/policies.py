@@ -1,3 +1,4 @@
+import threading
 from datetime import datetime
 from uuid import UUID
 
@@ -246,11 +247,14 @@ def get_deployments(
     return DeploymentPage(items=items, total=total, page=page, page_size=page_size)
 
 
+_verify_in_progress = threading.Lock()
+
+
 # Declared before every other /audit-events route so that a parameterised path
 # added later (for example /audit-events/{event_id}) cannot capture "verify".
 @router.get("/audit-events/verify", response_model=AuditChainVerification)
 def verify_audit_events(
-    anchor_index: int | None = Query(default=None, ge=1),
+    anchor_index: int | None = Query(default=None, ge=1, le=2**63 - 1),
     anchor_hash: str | None = Query(default=None, pattern="^[0-9a-fA-F]{64}$"),
     user: User = Depends(require_roles("ADMIN", "AUDITOR")),
 ) -> AuditChainVerification:
@@ -261,9 +265,20 @@ def verify_audit_events(
     """
     if (anchor_index is None) != (anchor_hash is None):
         raise HTTPException(422, "anchor_index and anchor_hash must be given together")
-    return AuditChainVerification.model_validate(
-        verify_audit_chain(anchor_index=anchor_index, anchor_hash=anchor_hash)
-    )
+    # A check reads the whole log and holds a database connection while it does.
+    # One at a time per process keeps repeated requests from using up the pool.
+    if not _verify_in_progress.acquire(blocking=False):
+        raise HTTPException(
+            429,
+            "A verification is already running. Try again when it has finished.",
+            headers={"Retry-After": "5"},
+        )
+    try:
+        return AuditChainVerification.model_validate(
+            verify_audit_chain(anchor_index=anchor_index, anchor_hash=anchor_hash)
+        )
+    finally:
+        _verify_in_progress.release()
 
 
 @router.get("/audit-events", response_model=AuditEventPage)

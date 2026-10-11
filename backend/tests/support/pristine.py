@@ -38,6 +38,8 @@ RESERVED_ROLES = (
     "ps_deployer",
     "ps_view_owner",
     "ps_reader",
+    "ps_support",
+    "ps_analyst",
 )
 SKIP_REASON = (
     "No pristine PostgreSQL server available: set TEST_PRISTINE_POSTGRES_URL to a superuser"

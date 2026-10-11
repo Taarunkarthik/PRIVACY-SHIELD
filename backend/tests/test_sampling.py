@@ -115,7 +115,7 @@ class _Target:
         return _SampledRows(self.rows)
 
 
-def test_shapes_are_stored_for_scalar_columns_only_and_hold_no_value():
+def test_shapes_are_stored_for_character_columns_only_and_hold_no_value():
     emails = [f"person{n}.surname@example.com" for n in range(1, 10)]
     table = {
         "schema": "enterprise",
@@ -149,9 +149,9 @@ def test_shapes_are_stored_for_scalar_columns_only_and_hold_no_value():
         (item["column_name"], item["json_path"]): item["sanitized_evidence"] for item in results
     }
     assert evidence[("contact", "")]["shapes"] == [{"shape": "a+9.a+@a+.a+", "rows": 9}]
-    assert evidence[("joined", "")]["shapes"] == [{"shape": "9+-9+-9+", "rows": 9}]
-    # A JSON document, a path inside it and an unread type carry no shapes key.
-    for key in [("profile", ""), ("profile", "$.email"), ("photo", "")]:
+    # A date (its type already says its form), a JSON document, a path inside it
+    # and an unread type carry no shapes key.
+    for key in [("joined", ""), ("profile", ""), ("profile", "$.email"), ("photo", "")]:
         assert "shapes" not in evidence[key]
     # Punctuation-only and NULL values leave the list empty, not absent.
     assert evidence[("nickname", "")]["shapes"] == []

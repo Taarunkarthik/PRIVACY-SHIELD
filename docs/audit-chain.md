@@ -118,7 +118,7 @@ A `BROKEN` result is also written to the application log with the position and r
 
 ## API
 
-`GET /api/v1/audit-events/verify`: `ADMIN` and `AUDITOR` only. Anonymous callers get `401`, analysts `403`.
+`GET /api/v1/audit-events/verify`: `ADMIN` and `AUDITOR` only. Anonymous callers get `401`, analysts `403`. One verification runs at a time in each server process: a request that arrives while another is running gets `429` with `Retry-After: 5` instead of waiting, so repeated requests cannot use up the database connection pool. `anchor_index` must fit a PostgreSQL `bigint`.
 
 ```json
 {

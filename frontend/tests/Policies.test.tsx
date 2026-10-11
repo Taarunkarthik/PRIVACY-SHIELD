@@ -43,8 +43,10 @@ const supportRules = [
   { policy_id: 'policy-1', column_name: 'phone', audience: 'support', action: 'MASK_PHONE', pseudonym_domain: null, classification_id: null },
 ];
 
-function server({ role = 'ADMIN', status = 'DRAFT', samples = false, withSupport = false } = {}) {
+function server({ role = 'ADMIN', status = 'DRAFT', samples = false, withSupport = false, createFails = false } = {}) {
   let current = status;
+  // When set, the general reader preview waits for the test to release it.
+  const readerPreview: { hold: Promise<void> | null } = { hold: null };
   const fetchMock = vi.fn(async (url: RequestInfo | URL, options?: RequestInit) => {
     const path = String(url);
     const method = options?.method ?? 'GET';
@@ -70,6 +72,7 @@ function server({ role = 'ADMIN', status = 'DRAFT', samples = false, withSupport
       rows: [['1', '+** ***** *0001']], row_limit: 5,
       access: { reader_role: 'ps_support', reader_can_read_view: true, reader_can_read_source: false },
     });
+    if (path.endsWith('/policies/policy-1/preview') && readerPreview.hold) await readerPreview.hold;
     if (path.endsWith('/policies/policy-1/preview')) return json({
       policy_id: 'policy-1', schema_name: 'enterprise', table_name: 'customers',
       view_schema: 'privacyshield_masked', view_name: 'customers_abc123',
@@ -105,6 +108,7 @@ function server({ role = 'ADMIN', status = 'DRAFT', samples = false, withSupport
         suggestion('notes', {}),
       ],
     });
+    if (path.endsWith('/policies') && method === 'POST' && createFails) return json({ detail: 'SCHEMA_DRIFT' }, 409);
     if (path.endsWith('/policies') && method === 'POST') return json(policy(), 201);
     if (path.endsWith('/policies/policy-1/submit') && method === 'POST') { current = 'PENDING_APPROVAL'; return json(policy()); }
     if (path.endsWith('/policies/policy-1/approve') && method === 'POST') { current = 'APPROVED'; return json(policy()); }
@@ -123,7 +127,7 @@ function server({ role = 'ADMIN', status = 'DRAFT', samples = false, withSupport
   }
   vi.stubGlobal('fetch', fetchMock);
   window.history.replaceState({}, '', '/policies?connection=db-1&policy=policy-1');
-  return fetchMock;
+  return Object.assign(fetchMock, { readerPreview });
 }
 
 describe('masking policy workflow', () => {
@@ -275,6 +279,82 @@ describe('masking policy workflow', () => {
     expect(within(output).getByText('+** ***** *0001')).toBeInTheDocument();
     expect(within(output).getAllByText('ps_support').length).toBeGreaterThan(0);
     expect(fetchMock.mock.calls.some(([path]) => String(path).endsWith('/policies/policy-1/protected-output'))).toBe(false);
+  });
+
+  it('never shows a late preview for one audience under another audience', async () => {
+    const fetchMock = server({ status: 'DEPLOYED', withSupport: true });
+    let release = () => {};
+    fetchMock.readerPreview.hold = new Promise<void>((resolve) => { release = resolve; });
+    const visitor = userEvent.setup({ delay: null });
+    render(<App />);
+    // The general reader preview is still on its way when Support is chosen.
+    await visitor.click(await screen.findByRole('button', { name: 'Preview' }));
+    const audiences = await screen.findByRole('group', { name: 'Audience' });
+    await visitor.click(within(audiences).getByRole('button', { name: /Support/ }));
+    expect(await screen.findByText('Preview: privacyshield_masked.customers_abc123_support')).toBeInTheDocument();
+    release();
+    // Give the late response every chance to land, then check it changed nothing.
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(screen.getByText('Preview: privacyshield_masked.customers_abc123_support')).toBeInTheDocument();
+    expect(screen.queryByText('Preview: privacyshield_masked.customers_abc123')).not.toBeInTheDocument();
+    expect(within(audiences).getByRole('button', { name: /Support/ })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('copies the general reader key domain, not one left over from an abandoned rule', async () => {
+    const fetchMock = server();
+    const visitor = userEvent.setup({ delay: null });
+    render(<App />);
+    await visitor.click(await screen.findByRole('button', { name: 'New policy' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Create policy' });
+    await visitor.selectOptions(await within(dialog).findByLabelText('Table'), 'enterprise.customers');
+    const audiences = within(dialog).getByRole('group', { name: 'Rules for' });
+
+    // An analyst rule is tried with its own key domain, then removed again.
+    await visitor.click(within(audiences).getByRole('button', { name: /Analysts/ }));
+    await visitor.selectOptions(within(dialog).getByLabelText('Action for email'), 'PSEUDONYMIZE');
+    const scratch = within(dialog).getByLabelText('Pseudonym key domain for email');
+    await visitor.clear(scratch);
+    await visitor.type(scratch, 'scratch');
+    await visitor.selectOptions(within(dialog).getByLabelText('Action for email'), '');
+
+    await visitor.click(within(audiences).getByRole('button', { name: /General readers/ }));
+    await visitor.selectOptions(within(dialog).getByLabelText('Action for email'), 'PSEUDONYMIZE');
+    const crm = within(dialog).getByLabelText('Pseudonym key domain for email');
+    await visitor.clear(crm);
+    await visitor.type(crm, 'crm');
+
+    await visitor.click(within(audiences).getByRole('button', { name: /Analysts/ }));
+    await visitor.click(within(dialog).getByRole('button', { name: 'Start from the general reader rules' }));
+    expect(within(dialog).getByLabelText('Pseudonym key domain for email')).toHaveValue('crm');
+
+    await visitor.click(within(dialog).getByRole('button', { name: 'Create policy' }));
+    const posted = fetchMock.mock.calls.find(([path, options]) => String(path).endsWith('/policies') && options?.method === 'POST');
+    expect(JSON.parse(String(posted?.[1]?.body)).rules).toEqual([
+      { column_name: 'email', action: 'PSEUDONYMIZE', pseudonym_domain: 'crm', classification_id: 'class-1' },
+      { column_name: 'email', action: 'PSEUDONYMIZE', pseudonym_domain: 'crm', audience: 'analyst' },
+    ]);
+  });
+
+  it('reports a failed create inside the dialog and closes on Escape', async () => {
+    server({ createFails: true });
+    const visitor = userEvent.setup({ delay: null });
+    render(<App />);
+    await visitor.click(await screen.findByRole('button', { name: 'New policy' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Create policy' });
+    const table = await within(dialog).findByLabelText('Table');
+    expect(table).toHaveFocus();
+    await visitor.selectOptions(table, 'enterprise.customers');
+    await visitor.selectOptions(within(dialog).getByLabelText('Action for id'), 'KEEP');
+    await visitor.click(within(dialog).getByRole('button', { name: 'Create policy' }));
+    // The message is in the dialog, where it can be seen, and the dialog stays open.
+    expect(await within(dialog).findByRole('alert')).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Create policy' })).toBeEnabled();
+    // Escape closes it even when focus has left the dialog, as it does after a
+    // button that removes itself is used.
+    (document.activeElement as HTMLElement | null)?.blur();
+    expect(document.body).toHaveFocus();
+    await visitor.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: 'Create policy' })).not.toBeInTheDocument();
   });
 
   it('does not offer approval to analysts', async () => {

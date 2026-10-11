@@ -55,7 +55,7 @@ flowchart LR
 
 In this arrangement the control and target databases share one PostgreSQL instance as two databases. `CONNECT` is revoked from `PUBLIC` on both, so target roles cannot open the control database and control roles cannot open the target. The trust boundaries below are otherwise unchanged: the application still runs as `ps_app`, scans as `ps_scanner`, deploys as `ps_deployer`, and readers still see only masked views.
 
-Celery's task time limits are replaced as follows. At the soft limit (scan 600 s, classification 900 s, deployment 120 s) the same `SoftTimeLimitExceeded` exception is raised inside the job thread, so the existing `*_TIMEOUT` handling applies. A thread cannot be killed at the hard limit (660 s, 960 s, 150 s), so the process exits instead; the platform restarts it and the durable row is recovered as a new attempt. Statement timeouts (10 s control plane and scanner, 30 s deployer) and 5 s connection timeouts bound each database call as before.
+Celery's task time limits are replaced as follows. At the soft limit (scan 600 s, classification 900 s, deployment 120 s) the same `SoftTimeLimitExceeded` exception is raised inside the job thread, so the existing `*_TIMEOUT` handling applies. A thread cannot be killed at the hard limit (660 s, 1050 s, 150 s), so the process exits instead; the platform restarts it and the durable row is recovered as a new attempt. Statement timeouts (10 s control plane and scanner, 30 s deployer) and 5 s connection timeouts bound each database call as before.
 
 ## Trust boundaries
 

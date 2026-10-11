@@ -104,6 +104,19 @@ def test_target_url_is_the_same_server_with_another_database():
         bootstrap._conninfo("mysql://x/y")
 
 
+@pytest.mark.parametrize("separator", ["/", "?", "#"])
+def test_a_url_that_cannot_be_read_never_quotes_the_password(separator):
+    # urlsplit reports the text it could not read as a port. With an unescaped
+    # separator in the password, that text is the start of the password.
+    url = f"postgresql://admin:Sup3rS3cretPrefix{separator}rest@db:5432/main"
+    with pytest.raises(bootstrap.BootstrapError) as failure:
+        bootstrap._conninfo(url)
+    message = str(failure.value)
+    assert "Sup3rS3cret" not in message and "rest" not in message.replace("Internal", "")
+    assert "percent-encode" in message
+    assert failure.value.__cause__ is None and failure.value.__suppress_context__
+
+
 def test_tls_mode_is_validated(monkeypatch):
     monkeypatch.delenv("BOOTSTRAP_DB_SSLMODE", raising=False)
     assert bootstrap._sslmode() == "require"

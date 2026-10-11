@@ -37,7 +37,6 @@ export function Policies() {
   const [showCreate, setShowCreate] = useState(false);
   const [actionError, setActionError] = useState('');
   const [previewError, setPreviewError] = useState('');
-  const [createError, setCreateError] = useState('');
   const [actionLoading, setActionLoading] = useState('');
   const [preview, setPreview] = useState<PolicyPreview | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -87,6 +86,15 @@ export function Policies() {
       .finally(() => { if (!controller.signal.aborted) setPoliciesLoading(false); });
     return () => controller.abort();
   }, [connectionId, page, revision]);
+
+  // Another policy is selected (a click, a newly created policy, Back or Forward):
+  // start on its rules, for general readers, without the previous policy's messages.
+  useEffect(() => {
+    setView('rules');
+    setAudience('reader');
+    setActionError('');
+    setPreviewError('');
+  }, [selectedId]);
 
   async function submitPolicy(id: string) {
     setActionLoading(id); setActionError('');
@@ -172,8 +180,6 @@ export function Policies() {
   const shownView: PolicyView = view === 'output' && !canSeeOutput ? 'rules' : view;
 
   function selectPolicy(id: string) {
-    setView('rules');
-    setAudience('reader');
     setParams({ connection: connectionId, policy: id });
   }
 
@@ -208,7 +214,7 @@ export function Policies() {
       </div>
     </div>
 
-    {(connectionError || policiesError || actionError || previewError || createError) && <div className="error-box" role="alert">{connectionError || policiesError || actionError || previewError || createError}</div>}
+    {(connectionError || policiesError || actionError || previewError) && <div className="error-box" role="alert">{connectionError || policiesError || actionError || previewError}</div>}
 
     {!connectionsLoading && !connection && <section className="panel data-empty"><ShieldCheck size={34} strokeWidth={1.3} /><h2>No connections available</h2><p>Connect a database to start creating masking policies.</p><Link to="/connections" className="button secondary">View connections <ArrowRight size={14} /></Link></section>}
 
@@ -276,9 +282,9 @@ export function Policies() {
         {shownView === 'preview' && (shownPreview ? <section className="policy-preview" aria-label="Policy preview">
           <div className="view-heading"><h3>Preview: {shownPreview.view_schema}.{shownPreview.view_name}</h3><p>Security-barrier view with {shownPreview.columns.length} columns.</p></div>
           {shownSamples
-            ? <div className="table-scroll">
-              <table className="columns-table masking-table masking-preview">
-                <caption className="masking-caption">Each example value is run through the policy's real masking expression in PostgreSQL. The examples are invented: no rows are read from your database.{hasPseudonym && ' A pseudonym shown here is a stand-in of the same shape; real tokens are made with a secret key kept in the target database.'}</caption>
+            ? <><p className="masking-note" id="masking-preview-note">Each example value is run through the policy's real masking expression in PostgreSQL. The examples are invented: no rows are read from your database.{hasPseudonym && ' A pseudonym shown here is a stand-in of the same shape; real tokens are made with a secret key kept in the target database.'}</p>
+            <div className="table-scroll">
+              <table className="columns-table masking-table masking-preview" aria-describedby="masking-preview-note">
                 <thead><tr><th scope="col">Column</th><th scope="col">Action</th><th scope="col">Example value</th><th scope="col">After masking</th></tr></thead>
                 <tbody>{shownSamples.columns.map((col, index) => {
                   const before = shownSamples.before[0]?.[index] ?? null;
@@ -291,7 +297,7 @@ export function Policies() {
                   </tr>;
                 })}</tbody>
               </table>
-            </div>
+            </div></>
             : <div className="preview-columns">
               {ownSamples?.status === 'UNAVAILABLE' && <p className="rules-editor-note">Example values are not available right now because the target database could not be used. The compiled plan below is unaffected.</p>}
               {shownPreview.columns.map((col) => (
@@ -324,7 +330,7 @@ export function Policies() {
       </section>}
     </div>}
 
-    {showCreate && <CreatePolicyDialog connectionId={connectionId} onClose={() => setShowCreate(false)} onError={setCreateError} onCreated={(id) => { setShowCreate(false); setParams({ connection: connectionId, policy: id }); setRevision((v) => v + 1); }} />}
+    {showCreate && <CreatePolicyDialog connectionId={connectionId} onClose={() => setShowCreate(false)} onCreated={(id) => { setShowCreate(false); setParams({ connection: connectionId, policy: id }); setRevision((v) => v + 1); }} />}
   </div>;
 }
 
@@ -357,7 +363,7 @@ function AudienceRules({ rules, audiences }: { rules: PolicyRule[]; audiences: A
   return <>
     <p className="rules-editor-note">Each audience reads its own masked view through its own database role. A column without a rule for an audience is NULL in that audience's view.</p>
     <div className="table-scroll">
-      <table className="columns-table audience-matrix">
+      <table className="columns-table masking-table audience-matrix">
         <thead><tr><th scope="col">Column</th>{audiences.map((item) => <th scope="col" key={item}>{audienceLabel[item]}<small className="masking-type">{audienceRole[item]}</small></th>)}</tr></thead>
         <tbody>{columns.map((column) => (
           <tr key={column}>
@@ -388,7 +394,7 @@ function suggestionNote(suggestion: RuleSuggestion | undefined): string {
     : `${category} in ${suggestion.matching_rows.toLocaleString()} of ${suggestion.sampled_rows.toLocaleString()} sampled rows`;
 }
 
-function CreatePolicyDialog({ connectionId, onClose, onError, onCreated }: { connectionId: string; onClose: () => void; onError: (msg: string) => void; onCreated: (id: string) => void }) {
+function CreatePolicyDialog({ connectionId, onClose, onCreated }: { connectionId: string; onClose: () => void; onCreated: (id: string) => void }) {
   const { user } = useAuth();
   const [snapshot, setSnapshot] = useState<SchemaSnapshot | null>(null);
   const [snapshotLoading, setSnapshotLoading] = useState(true);
@@ -401,6 +407,18 @@ function CreatePolicyDialog({ connectionId, onClose, onError, onCreated }: { con
   const domains = allDomains[editing];
   const [suggestions, setSuggestions] = useState<PolicySuggestions | null>(null);
   const [loading, setLoading] = useState(false);
+  // Shown inside the dialog: a message on the page behind it would be hidden.
+  const [error, setError] = useState('');
+
+  // Escape closes the dialog wherever focus is. A button that removes itself when
+  // used (applying suggestions, say) leaves focus on the page, outside the dialog.
+  const close = useRef(onClose);
+  close.current = onClose;
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') close.current(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -440,6 +458,16 @@ function CreatePolicyDialog({ connectionId, onClose, onError, onCreated }: { con
       else delete next[column];
       return { ...prev, [editing]: next };
     });
+    // A key domain belongs to a pseudonym rule. Left behind, it would win over
+    // the general reader's domain when those rules are copied in later.
+    if (action !== 'PSEUDONYMIZE') {
+      setAllDomains((prev) => {
+        if (!(column in prev[editing])) return prev;
+        const next = { ...prev[editing] };
+        delete next[column];
+        return { ...prev, [editing]: next };
+      });
+    }
   }
 
   // Suggestions are made for general readers. They fill only the columns still
@@ -463,6 +491,7 @@ function CreatePolicyDialog({ connectionId, onClose, onError, onCreated }: { con
   async function create() {
     if (!table || !user) return;
     setLoading(true);
+    setError('');
     try {
       const created = await api<Policy>('/policies', {
         method: 'POST',
@@ -483,7 +512,7 @@ function CreatePolicyDialog({ connectionId, onClose, onError, onCreated }: { con
         }),
       });
       onCreated(created.id);
-    } catch (r) { onError(r instanceof ApiError ? r.message : 'Could not create policy.'); }
+    } catch (r) { setError(r instanceof ApiError ? r.message : 'Could not create policy.'); }
     finally { setLoading(false); }
   }
 
@@ -494,7 +523,7 @@ function CreatePolicyDialog({ connectionId, onClose, onError, onCreated }: { con
         : !snapshot ? <div className="data-empty"><p>No schema snapshot found. Discover the schema first.</p></div>
         : <>
           <div className="form-field"><label htmlFor="policy-table">Table</label>
-            <select id="policy-table" value={selectedTable} onChange={(e) => { setSelectedTable(e.target.value); setAllRules(emptyAudienceMap()); setAllDomains(emptyAudienceMap()); setEditing('reader'); }}>
+            <select id="policy-table" autoFocus value={selectedTable} onChange={(e) => { setSelectedTable(e.target.value); setAllRules(emptyAudienceMap()); setAllDomains(emptyAudienceMap()); setEditing('reader'); }}>
               <option value="">Choose a table</option>
               {snapshot.catalog.tables.map((t) => <option key={tableKey(t)} value={tableKey(t)}>{t.schema}.{t.name}</option>)}
             </select>
@@ -538,6 +567,7 @@ function CreatePolicyDialog({ connectionId, onClose, onError, onCreated }: { con
               })}
             </div>
           </div>}
+          {error && <div className="error-box modal-error" role="alert">{error}</div>}
           <div className="modal-actions">
             <button className="button secondary" onClick={onClose}>Cancel</button>
             {overLimit && <p className="rules-editor-note" role="alert">A policy can hold at most {MAX_RULES} rules for each audience. Remove {counts[overLimit] - MAX_RULES} of the rules for {audienceLabel[overLimit].toLowerCase()} to continue; columns without a rule are returned as NULL.</p>}

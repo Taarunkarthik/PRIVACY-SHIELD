@@ -18,6 +18,7 @@ from app.services.scanning.shapes import (
     MAX_SHAPED_VALUE_CHARS,
     MAX_SHAPES_PER_COLUMN,
     MAX_TRACKED_SHAPES,
+    MIN_SHAPE_ROWS,
     SHAPE_ALPHABET,
     ShapeCounter,
     is_valid_shape,
@@ -82,13 +83,19 @@ def test_fixed_alphabet_is_the_documented_one():
     ("value", "shape"),
     [
         ("priya.sharma42@example.com", "a+.a+9+@a+.a+"),
-        ("+91 98765 43210", "+9+ 9+ 9+"),
+        ("+91 98765 43210", "?9+ 9+ 9+"),
         ("ABCPK1234F", "A+9+A"),
         ("2026-10-11", "9+-9+-9+"),
         ("(555) 123-4567", "(9+) 9+-9+"),
         ("Asha Rao", "Aa+ Aa+"),
         ("x", "a"),
-        ("C++", "A++"),
+        # A sign at either end is content, not form, and is written "?".
+        ("C++", "A+?"),
+        ("O-", "A?"),
+        ("O+", "A?"),
+        ("-12.50", "?9+.9+"),
+        ("+12.50", "?9+.9+"),
+        ("a-b", "a-a"),
         ("प्रिया शर्मा", "a+ a+"),
         ("山田太郎", "a+"),
         ("٠١٢٣", "9+"),
@@ -191,7 +198,9 @@ def test_punctuation_only_values_are_dropped_not_reproduced():
     assert value_shape(".-" * 30 + "x") is None
     # Marks around letters or digits are the form of the value and are kept.
     assert value_shape("N/A") == "A/A"
-    assert value_shape("-1") == "-9"
+    assert value_shape("1-1") == "9-9"
+    # A sign at an end is not form: both signs give one shape.
+    assert value_shape("-1") == value_shape("+1") == "?9"
 
 
 def test_long_values_get_one_fixed_marker_and_long_shapes_are_cut():
@@ -262,10 +271,39 @@ def test_counter_is_bounded_exact_for_tracked_shapes_and_deterministic():
     assert len(counter._rows) == MAX_TRACKED_SHAPES
     assert counter.untracked == 5000 - (MAX_TRACKED_SHAPES - 2) + 30
     top = counter.top()
-    assert top[:2] == [{"shape": "a+.a+@a+.a+", "rows": 40}, {"shape": "+9+ 9+ 9+", "rows": 25}]
-    assert len(top) == MAX_SHAPES_PER_COLUMN == 3
-    assert top[2]["rows"] == 1
-    # Ties are ordered by the shape text, so a retried scan stores the same list.
-    assert top[2]["shape"] == min(s for s, rows in counter._rows.items() if rows == 1)
+    assert top[:2] == [{"shape": "a+.a+@a+.a+", "rows": 40}, {"shape": "?9+ 9+ 9+", "rows": 25}]
+    # The third most common form was seen once. A form held by fewer than
+    # MIN_SHAPE_ROWS values describes a few people, not the column, and is left out.
+    assert len(top) == 2 and MAX_SHAPES_PER_COLUMN == 3
     assert all(is_valid_shape(item["shape"]) for item in top)
     assert ShapeCounter().top() == []
+
+
+def test_counter_reports_only_shapes_held_by_enough_rows_with_ties_in_a_fixed_order():
+    counter = ShapeCounter()
+    for value, rows in (("Yes", 96), ("No", MIN_SHAPE_ROWS - 1)):
+        for _ in range(rows):
+            counter.add(value)
+    # Four values of the rarer form are not enough to report it.
+    assert counter.top() == [{"shape": "Aa+", "rows": 96}]
+    counter.add("No")
+    assert counter.top() == [{"shape": "Aa+", "rows": 96}, {"shape": "Aa", "rows": MIN_SHAPE_ROWS}]
+    # Ties are ordered by the shape text, so a retried scan stores the same list.
+    tied = ShapeCounter()
+    for value in ("b-1", "B 1", "b.1") * MIN_SHAPE_ROWS:
+        tied.add(value)
+    assert [item["shape"] for item in tied.top()] == sorted(["a-9", "A 9", "a.9"])
+
+
+def test_a_sign_at_either_end_never_survives_and_is_never_valid():
+    rng = random.Random(23)
+    for _ in range(3000):
+        core = "".join(rng.choice("xX7 .@-+") for _ in range(rng.randint(1, 20)))
+        core = "q" + core + "q"  # Letters at both ends of the middle part.
+        shapes = {value_shape(lead + core + tail) for lead in "+-" for tail in "+-"}
+        assert len(shapes) == 1, core
+        (shape,) = shapes
+        assert shape.startswith("?") and shape.endswith("?")
+        assert is_valid_shape(shape)
+    for forged in ("+9+ 9+", "-9+.9+", "A+-", "9+-", "a++"):
+        assert not is_valid_shape(forged)

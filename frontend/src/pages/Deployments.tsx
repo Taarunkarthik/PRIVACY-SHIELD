@@ -3,7 +3,7 @@ import { Link } from 'react-router';
 import { Check, ChevronLeft, ChevronRight, FileClock, Play, RefreshCw, X } from 'lucide-react';
 import { api, ApiError } from '../api/client';
 import type { DeploymentPage } from '../api/policies';
-import { deploymentStatusLabel } from '../api/policies';
+import { deploymentErrorHint, deploymentStatusLabel } from '../api/policies';
 
 export function Deployments() {
   const [deployments, setDeployments] = useState<DeploymentPage | null>(null);
@@ -42,7 +42,7 @@ export function Deployments() {
             </span>
             <span className={`pill deployment-status status-${item.status.toLowerCase()}`}>{deploymentStatusLabel[item.status]}</span>
             {item.target_receipt && <span className="deployment-receipt"><Check size={13} /> Receipt</span>}
-            {item.error_code && <span className="deployment-error">{item.error_code}</span>}
+            {item.error_code && <span className="deployment-error">{item.error_code}{deploymentErrorHint[item.error_code] && <small>{deploymentErrorHint[item.error_code]}</small>}</span>}
           </div>))}</div>}
       {deployments && deployments.total > 20 && <div className="pagination"><span>Page {page} of {Math.ceil(deployments.total / 20)}</span><div><button className="button secondary" disabled={page === 1 || loading} onClick={() => setPage(page - 1)}><ChevronLeft size={13} /> Previous</button><button className="button secondary" disabled={page * 20 >= deployments.total || loading} onClick={() => setPage(page + 1)}>Next <ChevronRight size={13} /></button></div></div>}
     </section>

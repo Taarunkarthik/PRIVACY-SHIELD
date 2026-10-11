@@ -76,7 +76,7 @@ def dispatch_scans() -> None:
 
 
 @celery_app.task(
-    name="privacyshield.classify", ignore_result=True, soft_time_limit=900, time_limit=960
+    name="privacyshield.classify", ignore_result=True, soft_time_limit=900, time_limit=1050
 )
 def classify(job_id: str) -> None:
     from app.services.classification.jobs import run_classification

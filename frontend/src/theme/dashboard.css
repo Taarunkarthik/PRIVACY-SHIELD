@@ -50,6 +50,10 @@
 .status-row dt .key-dot { width: 7px; height: 7px; }
 .status-row dd { margin: 2px 0 0; font-size: 22px; font-weight: 600; line-height: 1.2; }
 .pipeline-links { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 0 20px 12px; }
+/* Six states fit one row on a wide screen; below that, two even rows of three rather than five and a stray one. */
+@media (max-width: 1400px) {
+  .status-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
 .activity-row { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 7px 10px 7px 12px; border: 1px solid var(--line); border-radius: var(--radius-s); background: var(--raised); }
 .activity-row:hover { background: var(--raised-hover); border-color: var(--line-strong); }
 .activity-row > span:nth-child(2) { min-width: 0; }

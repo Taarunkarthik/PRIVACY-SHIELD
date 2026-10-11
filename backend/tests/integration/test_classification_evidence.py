@@ -31,7 +31,7 @@ from app.models import (
 )
 from app.services.classification.adapter import system_prompt
 from app.services.classification.triage import detector_verdict
-from app.services.scanning.shapes import is_valid_shape
+from app.services.scanning.shapes import MIN_SHAPE_ROWS, is_valid_shape
 
 pytestmark = pytest.mark.integration
 
@@ -40,6 +40,26 @@ SHAPE_PATTERN = re.compile(r"[aA9+?@.\-_()/:, ]{1,48}")
 DEMO_TABLES = {"customers", "accounts", "transactions", "support_records"}
 # Each demo table holds 100 rows; a quarter keeps this real scan short.
 SAMPLE_ROWS = 25
+# Shapes are stored for character columns only.
+CHARACTER_COLUMNS = {
+    ("customers", "full_name"),
+    ("customers", "email"),
+    ("customers", "phone"),
+    ("customers", "pan"),
+    ("customers", "aadhaar"),
+    ("customers", "address"),
+    ("accounts", "account_number"),
+    ("accounts", "currency"),
+    ("transactions", "note"),
+    ("support_records", "body"),
+}
+OTHER_COLUMNS = {
+    ("customers", "id"),
+    ("customers", "created_at"),
+    ("accounts", "balance"),
+    ("transactions", "amount"),
+    ("transactions", "sequence_number"),
+}
 RAW_FRAGMENTS = [
     "@example",
     "customer1",
@@ -183,15 +203,20 @@ def test_real_scan_stores_shapes_and_only_uncertain_columns_reach_the_model(
     column = {(item["table_name"], item["column_name"]): item for item in whole}
     assert DEMO_TABLES <= {item["table_name"] for item in whole}
 
-    # Every scalar column that was read has shapes, and each one is only a form.
+    # Character columns have shapes, and each one is only a form. Numbers, dates
+    # and JSON have none: for them the type already says the form.
+    for key in CHARACTER_COLUMNS:
+        assert "shapes" in column[key]["sanitized_evidence"], key
+    for key in OTHER_COLUMNS:
+        assert "shapes" not in column[key]["sanitized_evidence"], key
     shaped = 0
     for item in items:
         evidence = item["sanitized_evidence"]
         if item["json_path"] or item["column_name"] == "profile":
             assert "shapes" not in evidence  # JSON documents and paths have none.
             continue
-        if evidence["coverage"]["unsupported_type"]:
-            assert "shapes" not in evidence
+        if evidence["coverage"]["unsupported_type"] or "shapes" not in evidence:
+            assert (item["table_name"], item["column_name"]) not in CHARACTER_COLUMNS
             continue
         shapes = evidence["shapes"]
         assert len(shapes) <= 3 and evidence["values_read"] <= item["sampled_rows"]
@@ -200,13 +225,14 @@ def test_real_scan_stores_shapes_and_only_uncertain_columns_reach_the_model(
             (entry["rows"] for entry in shapes), reverse=True
         )
         for entry in shapes:
-            assert set(entry) == {"shape", "rows"} and entry["rows"] >= 1
+            # A form held by fewer than five sampled values is never stored.
+            assert set(entry) == {"shape", "rows"} and entry["rows"] >= MIN_SHAPE_ROWS
             assert SHAPE_PATTERN.fullmatch(entry["shape"]) and is_valid_shape(entry["shape"])
             # No letter other than a and A, and no digit other than 9.
             assert not re.search(r"[b-zB-Z0-8]", entry["shape"])
             assert "@example" not in entry["shape"]
         shaped += bool(shapes)
-    assert shaped >= 10
+    assert shaped == len(CHARACTER_COLUMNS)
 
     # The demo addresses are customer1 to customer100 at one domain. Only nine
     # have a single digit, so in any 25 rows the two-or-more-digit form leads.
@@ -215,7 +241,7 @@ def test_real_scan_stores_shapes_and_only_uncertain_columns_reach_the_model(
     top = email["sanitized_evidence"]["shapes"][0]
     assert top["shape"] == "a+9+@a+.a+" and top["rows"] >= SAMPLE_ROWS - 9
     assert column[("customers", "phone")]["sanitized_evidence"]["shapes"] == [
-        {"shape": "+9+ 9+ 9+", "rows": SAMPLE_ROWS}
+        {"shape": "?9+ 9+ 9+", "rows": SAMPLE_ROWS}
     ]
     assert column[("customers", "pan")]["sanitized_evidence"]["shapes"] == [
         {"shape": "A+9+A", "rows": SAMPLE_ROWS}
@@ -265,7 +291,7 @@ def test_real_scan_stores_shapes_and_only_uncertain_columns_reach_the_model(
         else:
             assert "shapes" not in entry
             assert request["system"] == system_prompt(with_shapes=False)
-    assert with_shapes >= 5
+    assert with_shapes >= 3
     assert not any(fragment in json.dumps(sent) for fragment in RAW_FRAGMENTS)
 
     # A decided column can still be chosen explicitly, and its shapes are sent.
@@ -338,7 +364,7 @@ def decided_scan(db, login):
     rows = {}
     for name, path, matching, counts, evidence in [
         ("email", "", 10, {"EMAIL_ADDRESS": 10}, {"shapes": [{"shape": "a+@a+.a+", "rows": 10}]}),
-        ("phone", "", 9, {"PHONE_NUMBER": 9}, {"shapes": [{"shape": "+9+ 9+ 9+", "rows": 9}]}),
+        ("phone", "", 9, {"PHONE_NUMBER": 9}, {"shapes": [{"shape": "?9+ 9+ 9+", "rows": 9}]}),
         ("photo", "", 0, {}, {"coverage": coverage | {"unsupported_type": True}, "values_read": 0}),
         ("profile", "", 0, {}, {"values_read": 0}),
         # A JSON path with no match: paths are never part of the default selection.
@@ -389,7 +415,7 @@ def test_nothing_uncertain_is_a_bounded_error_and_starts_no_job(decided_scan, fa
     assert job["total_results"] == 1
     requests = fake_model.get("/requests").json()["requests"]
     assert len(requests) == 1
-    assert requests[0]["columns"][0]["shapes"] == [{"shape": "+9+ 9+ 9+", "rows": 9}]
+    assert requests[0]["columns"][0]["shapes"] == [{"shape": "?9+ 9+ 9+", "rows": 9}]
     assert "must-never-reach-model" not in json.dumps(requests)
 
 

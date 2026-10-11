@@ -321,7 +321,8 @@ def test_bootstrap_as_non_superuser_provisions_one_instance(instance, tmp_path):
     for role in RESERVED_ROLES:
         _, superuser, _, createrole, createdb, can_login, replication, bypassrls, _ = roles[role]
         assert not (superuser or createrole or createdb or replication or bypassrls), role
-        assert can_login is (role != "ps_view_owner")
+        # The view owner and the two audience group roles are never logged in to.
+        assert can_login is (role not in {"ps_view_owner", "ps_support", "ps_analyst"})
     assert before["demo_rows"] == [100, 100, 100, 100]
 
     # --- target database: reader, scanner, deployer

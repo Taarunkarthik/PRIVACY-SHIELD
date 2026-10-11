@@ -1,7 +1,7 @@
 """Memory-bounded source sampling.
 
 Only counts, coverage and value shapes leave this module. A shape describes the
-form of a value and holds none of its characters (see ``shapes.py``).
+form of a value and holds none of its letters or digits (see ``shapes.py``).
 """
 
 import hashlib
@@ -33,6 +33,8 @@ MIN_CANDIDATE_PAGES = 256
 # Above it, a short sample is better than a scan that runs into the timeout.
 FULL_SCAN_LIMIT_BYTES = 256 * 1024 * 1024
 NO_PAGE_SAMPLE = sql.SQL("")
+# Types whose values get a shape (see shapes.py). A subset of TEXT_TYPES.
+SHAPED_TYPES = {"text", "varchar", "bpchar", "char", "citext"}
 TEXT_TYPES = {
     "text",
     "varchar",
@@ -299,11 +301,11 @@ def sample_table(
         )
         sampled_rows = 0
         values_read = [0] * len(group)
-        # Scalar columns only. A JSON document has no single form, and its text
-        # would spell out keys that can themselves be personal data.
+        # Character columns only. A JSON document has no single form, and its
+        # text would spell out keys that can themselves be personal data. For a
+        # number, a date or a boolean the type already says the form.
         shapes = [
-            None if column["is_jsonb"] or column["udt_name"] not in TEXT_TYPES else ShapeCounter()
-            for column in group
+            ShapeCounter() if column["udt_name"] in SHAPED_TYPES else None for column in group
         ]
         with target.cursor(name="ps_scan_" + uuid.uuid4().hex, row_factory=tuple_row) as cursor:
             cursor.execute(query, (sample_limit,))
@@ -359,8 +361,8 @@ def sample_table(
                 }
                 if shapes[index] is not None:
                     # The most common value forms with row counts; a form holds
-                    # no character of any value. Absent for JSON and for types
-                    # that are not read, and absent in scans stored earlier.
+                    # no letter or digit of any value. Present for character
+                    # columns only, and absent in scans stored earlier.
                     evidence["shapes"] = shapes[index].top()
                 yield {
                     "schema_name": table["schema"],

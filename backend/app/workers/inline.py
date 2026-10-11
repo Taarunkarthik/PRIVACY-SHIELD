@@ -45,9 +45,13 @@ logger = logging.getLogger("privacyshield.jobs")
 SWEEP_INTERVAL_SECONDS = 15.0
 # (soft, hard) seconds per job kind: the limits of the matching Celery tasks.
 # tests/test_inline_runner.py asserts the two stay equal.
+# The classification gap is wider than one model call (120 s, adapter.py): the
+# soft limit cannot interrupt a thread blocked in a socket read, and the hard
+# limit here ends the whole service, so it must outlast a call that is already
+# under way when the soft limit fires.
 TIME_LIMITS: dict[str, tuple[float, float]] = {
     "scan": (600, 660),
-    "classify": (900, 960),
+    "classify": (900, 1050),
     "deploy": (120, 150),
 }
 # How long a clean shutdown waits for the running job before leaving it to be

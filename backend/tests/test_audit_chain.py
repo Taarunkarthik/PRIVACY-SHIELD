@@ -299,3 +299,63 @@ def test_verify_validates_the_optional_anchor(client, monkeypatch):
     ):
         assert client.get(VERIFY_PATH + query).status_code == 422, query
     assert calls == []
+
+
+def test_verify_rejects_an_anchor_index_no_bigint_can_hold(client, monkeypatch):
+    def unexpected(**_):
+        raise AssertionError("an out-of-range anchor must be refused before the chain is read")
+
+    monkeypatch.setattr("app.api.policies.verify_audit_chain", unexpected)
+    _as("AUDITOR")
+    query = f"?anchor_index={2**63}&anchor_hash=" + "a" * 64
+    assert client.get(VERIFY_PATH + query).status_code == 422
+
+
+def test_only_one_verification_runs_at_a_time(client, monkeypatch):
+    """A check reads the whole log; a second request must not queue up behind it."""
+    import threading
+
+    started, release = threading.Event(), threading.Event()
+    result = ChainVerification(
+        status="INTACT",
+        sealed=1,
+        pending=0,
+        head_index=1,
+        head_hash="b" * 64,
+        broken_index=None,
+        reason=None,
+        anchor_status=None,
+        verified_at=datetime(2026, 10, 1, 9, 0, tzinfo=UTC),
+    )
+
+    def slow(**_):
+        started.set()
+        assert release.wait(10)
+        return result
+
+    monkeypatch.setattr("app.api.policies.verify_audit_chain", slow)
+    _as("ADMIN")
+    first = {}
+    worker = threading.Thread(target=lambda: first.update(response=client.get(VERIFY_PATH)))
+    worker.start()
+    try:
+        assert started.wait(10)
+        second = client.get(VERIFY_PATH)
+        assert second.status_code == 429
+        assert second.headers["retry-after"] == "5"
+    finally:
+        release.set()
+        worker.join(10)
+    assert first["response"].status_code == 200
+    # The first check has finished, so the next one runs. A failed check frees the slot too.
+    assert client.get(VERIFY_PATH).status_code == 200
+
+    def failing(**_):
+        raise RuntimeError("database went away")
+
+    monkeypatch.setattr("app.api.policies.verify_audit_chain", failing)
+    with pytest.raises(RuntimeError):
+        client.get(VERIFY_PATH)
+    monkeypatch.setattr("app.api.policies.verify_audit_chain", lambda **_: result)
+    assert client.get(VERIFY_PATH).status_code == 200
+

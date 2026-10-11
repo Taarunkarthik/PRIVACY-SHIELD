@@ -137,16 +137,24 @@ def resolve_secrets(environ: Mapping[str, str]) -> dict[str, str]:
 
 
 def _conninfo(url: str) -> dict:
-    parts = urlsplit(url)
-    if parts.scheme not in ("postgres", "postgresql"):
-        raise BootstrapError("Admin database URL must be a postgres URL")
-    return {
-        "host": parts.hostname or "localhost",
-        "port": parts.port or 5432,
-        "user": unquote(parts.username or "postgres"),
-        "password": unquote(parts.password or ""),
-        "dbname": (parts.path or "/").lstrip("/") or "postgres",
-    }
+    try:
+        parts = urlsplit(url)
+        if parts.scheme not in ("postgres", "postgresql"):
+            raise BootstrapError("Admin database URL must be a postgres URL")
+        return {
+            "host": parts.hostname or "localhost",
+            "port": parts.port or 5432,
+            "user": unquote(parts.username or "postgres"),
+            "password": unquote(parts.password or ""),
+            "dbname": (parts.path or "/").lstrip("/") or "postgres",
+        }
+    except ValueError:
+        # urlsplit quotes the part it could not read, which can be a piece of the
+        # password (one containing "/", "?" or "#" must be percent-encoded).
+        raise BootstrapError(
+            "Admin database URL could not be read. Copy the Internal Database URL"
+            " exactly, and percent-encode any / ? # @ : in a password you typed."
+        ) from None
 
 
 def _sslmode() -> str:
@@ -419,6 +427,7 @@ def provision_target(
         # an operator grants to their own users. Created once, never altered.
         for audience_role in ("ps_support", "ps_analyst"):
             if not _role_exists(connection, audience_role):
+                logger.info("Bootstrap: creating role %s", audience_role)
                 connection.execute(
                     f"CREATE ROLE {audience_role} NOLOGIN NOSUPERUSER NOCREATEDB"
                     " NOCREATEROLE NOBYPASSRLS"

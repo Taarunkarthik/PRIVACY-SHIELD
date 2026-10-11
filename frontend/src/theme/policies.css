@@ -41,6 +41,7 @@
 .audience-option small { font-family: var(--font-mono); font-size: 12px; color: var(--text-3); }
 .audience-option:hover { background: var(--raised-hover); color: var(--text); }
 .audience-option[aria-pressed="true"] { border-color: var(--mint-line); background: var(--mint-soft); color: var(--text); }
+.audience-option:hover small { color: var(--text-2); }
 .audience-option[aria-pressed="true"] small { color: var(--mint); }
 .rules-editor > .audience-switch { padding: 0 0 14px; }
 .rules-editor-note code { font-family: var(--font-mono); font-size: 12px; color: var(--text-2); }
@@ -48,7 +49,12 @@
 
 /* One policy, several audiences: a column per audience. */
 .policy-rules > .table-scroll { border: 1px solid var(--line); border-radius: 7px; }
-.audience-matrix td .pill + .masking-type { margin-top: 5px; }
+.audience-matrix td small.masking-type { display: block; margin-top: 5px; font-size: 12px; color: var(--text-3); }
+.audience-matrix thead th { white-space: normal; }
+
+/* Why the examples can be shown: sits above the table so it never scrolls sideways with it. */
+.masking-note { padding: 0 20px 14px; font-size: 13px; line-height: 1.6; color: var(--text-2); }
+.modal-error { margin: 0 24px 16px; }
 
 /* Before and after: amber while a value is exposed, mint once it is masked. */
 .masking-table td code.exposed-value { color: var(--amber); }
@@ -82,7 +88,7 @@
   .policy-toolbar { padding: 0 12px; }
   .policy-tab { padding: 10px 9px 11px; font-size: 13px; }
   .policy-toolbar .policy-actions { padding: 10px 0; width: 100%; }
-  .policy-detail .policy-rules, .view-heading, .policy-detail > .audience-switch { padding-left: 16px; padding-right: 16px; }
+  .policy-detail .policy-rules, .view-heading, .masking-note, .policy-detail > .audience-switch { padding-left: 16px; padding-right: 16px; }
   /* Too narrow for four fixed columns: the table keeps a readable width and scrolls sideways. */
   .masking-preview { table-layout: auto; min-width: 580px; }
 

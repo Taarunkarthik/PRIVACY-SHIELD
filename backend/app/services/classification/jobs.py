@@ -37,9 +37,9 @@ SAFE_ERROR_CODES = {
 }
 STOP_ERRORS = {"OLLAMA_UNAVAILABLE", "OLLAMA_TIMEOUT", "OLLAMA_HTTP_ERROR", "AI_MODEL_MISMATCH"}
 # Value shapes and the prompt paragraph that explains them have not been run
-# against the real model. Set this to False to send exactly the request that
-# was verified under prompt v3; stored shapes are then left unused.
-SEND_SHAPES = True
+# against the real model. AI_SEND_SHAPES=false (Settings.ai_send_shapes) sends
+# exactly the request that was verified under prompt v3; stored shapes are then
+# left unused.
 
 
 class ClassificationFailure(Exception):
@@ -256,7 +256,7 @@ def evidence_for_result(db, job: ClassificationJob, result_id: UUID) -> dict:
     # stored before shapes existed. The adapter validates every shape against
     # a fixed alphabet and rejects the column if one does not pass.
     shapes = result.sanitized_evidence.get("shapes")
-    if SEND_SHAPES and shapes and not result.json_path:
+    if get_settings().ai_send_shapes and shapes and not result.json_path:
         evidence["shapes"] = shapes
     return evidence
 

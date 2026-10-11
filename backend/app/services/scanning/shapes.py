@@ -15,10 +15,24 @@ Symbols
     ``@ . - _ + ( ) / : ,`` and the space are kept as they are
     ``+``  directly after a symbol means "two or more of it"
 
-Every class except the kept punctuation has many members, so a symbol never
-says which character was there. A kept punctuation mark is a class of one. For
-that reason a value made only of kept punctuation is dropped instead of shaped:
-its shape would be the value itself.
+What a shape does and does not hide
+    No letter or digit of a value is ever in its shape: every class except the
+    kept punctuation has many members, so a symbol never says which character
+    was there. A kept punctuation mark is a class of one, and three rules keep
+    that from turning a shape back into a value:
+
+    * a value made only of kept punctuation is dropped instead of shaped;
+    * a ``+`` or ``-`` at the very start or end of a value is a sign, not
+      structure, and is written ``?`` (so ``O+`` and ``O-`` share one shape,
+      as do ``-12.50`` and ``+12.50``);
+    * a column reports a shape only when at least ``MIN_SHAPE_ROWS`` sampled
+      values have it, so a shape never describes one person's value.
+
+    What remains visible is aggregate form: which punctuation separates the
+    parts of the common values, and whether a part is one character or more.
+    Shapes are computed for character columns only. For a number, a date or a
+    boolean the type already says the form, and a shape would add only the sign
+    and the magnitude.
 """
 
 import re
@@ -31,6 +45,10 @@ MAX_SHAPE_CHARS = 48
 # A longer value is free text; its exact form says little and costs CPU.
 MAX_SHAPED_VALUE_CHARS = 256
 MAX_SHAPES_PER_COLUMN = 3
+# A shape held by fewer sampled values than this is not reported.
+MIN_SHAPE_ROWS = 5
+# At either end of a value these are a sign, which is content rather than form.
+_SIGNS = frozenset("+-")
 # Distinct shapes tracked per column while sampling. See ``ShapeCounter``.
 MAX_TRACKED_SHAPES = 64
 # Three dots never occur in a computed shape (a run of dots collapses to
@@ -42,6 +60,9 @@ _ALPHABET_ONLY = re.compile("[" + re.escape(SHAPE_ALPHABET) + "]+")
 # Two equal neighbours other than ``+`` would have been collapsed, and at most
 # three ``+`` can meet: a run marker followed by a collapsed run of plus signs.
 _NOT_COLLAPSED = re.compile(r"([^+])\1|\+{4}")
+# A sign at either end is written ``?``, so no shape starts with ``+`` or ``-``,
+# ends with ``-``, or ends with a literal plus after a run marker.
+_SIGN_AT_AN_END = re.compile(r"^[+-]|-$|\+\+$")
 
 
 def _symbol(character: str, previous: str) -> str:
@@ -76,10 +97,16 @@ def value_shape(value: str) -> str | None:
     parts: list[str] = []
     previous = ""
     repeated = False
-    for character in value:
+    has_content = False
+    last = len(value) - 1
+    for index, character in enumerate(value):
         symbol = _symbol(character, previous)
         if not symbol:
             continue
+        if symbol in CLASS_SYMBOLS:
+            has_content = True
+        elif character in _SIGNS and index in (0, last):
+            symbol = "?"
         if symbol == previous:
             if not repeated:
                 parts.append("+")
@@ -88,11 +115,13 @@ def value_shape(value: str) -> str | None:
         parts.append(symbol)
         previous = symbol
         repeated = False
+    if not has_content:
+        return None
     shape = "".join(parts)
     if len(shape) > MAX_SHAPE_CHARS:
         shape = shape[: MAX_SHAPE_CHARS - len(CONTINUES)] + CONTINUES
-    if not CLASS_SYMBOLS.intersection(shape.removesuffix(CONTINUES)):
-        return None
+        if not CLASS_SYMBOLS.intersection(shape.removesuffix(CONTINUES)):
+            return None
     return shape
 
 
@@ -107,11 +136,15 @@ def is_valid_shape(shape: object) -> bool:
     if not _ALPHABET_ONLY.fullmatch(shape):
         return False
     body = shape
-    if shape.endswith(CONTINUES):
+    truncated = shape.endswith(CONTINUES)
+    if truncated:
         if shape != LONG_TEXT_SHAPE and len(shape) != MAX_SHAPE_CHARS:
             return False
         body = shape[: -len(CONTINUES)]
     if _NOT_COLLAPSED.search(body):
+        return False
+    # A truncated shape was cut mid-value, so only its start is an end of the value.
+    if body[0] in _SIGNS or (not truncated and _SIGN_AT_AN_END.search(body)):
         return False
     return bool(CLASS_SYMBOLS.intersection(body))
 
@@ -144,6 +177,14 @@ class ShapeCounter:
             self.untracked += 1
 
     def top(self, limit: int = MAX_SHAPES_PER_COLUMN) -> list[dict]:
-        """The most common shapes, most frequent first, ties in a fixed order."""
+        """The most common shapes, most frequent first, ties in a fixed order.
+
+        A shape held by fewer than ``MIN_SHAPE_ROWS`` values is left out: it
+        would describe a handful of people rather than the column.
+        """
         ranked = sorted(self._rows.items(), key=lambda item: (-item[1], item[0]))
-        return [{"shape": shape, "rows": rows} for shape, rows in ranked[:limit]]
+        return [
+            {"shape": shape, "rows": rows}
+            for shape, rows in ranked[:limit]
+            if rows >= MIN_SHAPE_ROWS
+        ]

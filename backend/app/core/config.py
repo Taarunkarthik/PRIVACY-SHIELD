@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     celery_queue: str = Field(default="privacyshield", pattern=r"^[a-zA-Z0-9_-]{1,80}$")
     ollama_base_url: str = "http://ollama:11434"
     ollama_model: str = Field(default="qwen2.5:1.5b", min_length=1, max_length=120)
+    # Whether stored value shapes are sent to the model with the prompt paragraph
+    # that explains them (prompt v4). Off, every request is the one prompt v3
+    # sent. Set AI_SEND_SHAPES=false if the real model answers worse with them.
+    ai_send_shapes: bool = True
     credential_encryption_key: SecretStr
     allowed_origins: list[str] = Field(default_factory=lambda: ["http://localhost:8080"])
     # A single deployment origin (e.g. a Render frontend URL) merged with allowed_origins.

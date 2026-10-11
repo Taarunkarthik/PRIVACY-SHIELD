@@ -270,7 +270,7 @@ else happens, exactly as with Celery.
 | Celery beat calls the `dispatch_*` functions every 15 seconds | A supervisor thread calls the same functions every 15 seconds, and once right after startup |
 | One worker process (`--concurrency=1`) | One worker thread: one job at a time, one copy of the detection model in memory |
 | Soft time limit: `SoftTimeLimitExceeded` is raised in the task (scan 600 s, classification 900 s, deployment 120 s) | The same exception is raised in the worker thread at the same limits. The job code that already turns it into `SCAN_TIMEOUT` / `CLASSIFICATION_TIMEOUT` is unchanged |
-| Hard time limit: the worker process is killed (660 s, 960 s, 150 s) | A thread cannot be killed, so the **process exits** with status 70. The platform restarts the service, the job's advisory lock is released with its connection, and the sweep runs the row again as a new attempt (3 attempts in all) |
+| Hard time limit: the worker process is killed (660 s, 1050 s, 150 s) | A thread cannot be killed, so the **process exits** with status 70. The platform restarts the service, the job's advisory lock is released with its connection, and the sweep runs the row again as a new attempt (3 attempts in all) |
 | Worker killed mid-job: row stays `RUNNING`, re-dispatched after 30 s | The same rule, applied by the sweep after the service restarts |
 
 Two things bound a job besides those limits. Every database statement has a

@@ -53,7 +53,7 @@ docker compose exec -T api python -c "from app.services.classification.adapter i
 
 The first sends, byte for byte, the request that passed under v3, so a failure there is not caused by shapes. The second describes a fabricated column the detectors missed (`contact_ref`, no matches) whose values all have a phone-like form. It prints `status: ok` when the model proposes protection and `status: review` when it answers `NONE` or `KEEP`, which means the shapes did not help on that fixture. Neither is an accuracy measurement.
 
-If v4 behaves worse than v3, set `SEND_SHAPES = False` in `backend/app/services/classification/jobs.py` and rebuild. The worker then sends exactly the v3 request for every column, and stored shapes are left unused. Jobs are still labelled `privacyshield-classify-v4`.
+If v4 behaves worse than v3, set `AI_SEND_SHAPES=false` in `.env` and run `docker compose up -d` again (no rebuild). The worker then sends exactly the v3 request for every column, and stored shapes are left unused. Jobs are still labelled `privacyshield-classify-v4`.
 
 ## Workflow and API
 
@@ -112,7 +112,7 @@ The prompt version is `privacyshield-classify-v4`. Its system message is the v3 
 | HTTP read timeout | 120 seconds, with a deadline checked while reading chunks |
 | Recommendation reason | 1–500 characters; prompt requests under 100 |
 | Confidence | Finite numeric value in 0–1; strings and booleans rejected |
-| Classification job | 1–50 selected results; worker soft/hard limits 900/960 seconds |
+| Classification job | 1–50 selected results; worker soft/hard limits 900/1050 seconds |
 
 HTTP proxy inheritance and redirects are disabled. No raw model response, source value, or transport exception is returned in an adapter error. The 120-second read setting limits socket inactivity, not a guaranteed whole-job completion time. Large selections can take several minutes; unfinished items are reported explicitly when execution times out.
 
@@ -133,29 +133,31 @@ Until v4 the model saw a column's name, type, key flags and detector counts. For
 | Anything else: other punctuation, quotes, backslashes, symbols, emoji, control characters, tabs and line breaks | `?` |
 | A combining mark directly after a letter | nothing; it belongs to that letter |
 
-A run of two or more of the same symbol is then written as the symbol followed by `+`. So `priya.sharma42@example.com` becomes `a+.a+9+@a+.a+`, `+91 98765 43210` becomes `+9+ 9+ 9+`, `ABCPK1234F` becomes `A+9+A`, `2026-10-11` becomes `9+-9+-9+`, and `1 Example Street, Demo City` becomes `9 Aa+ Aa+, Aa+ Aa+`. Classification is by Unicode category, so `प्रिया शर्मा` becomes `a+ a+`. The whole alphabet is the fifteen characters `aA9+?@.-_()/:, ` including the space.
+A `+` or `-` at the very start or end of a value is a sign rather than part of its form, and is written `?`. A run of two or more of the same symbol is then written as the symbol followed by `+`. So `priya.sharma42@example.com` becomes `a+.a+9+@a+.a+`, `+91 98765 43210` becomes `?9+ 9+ 9+`, `ABCPK1234F` becomes `A+9+A`, `2026-10-11` becomes `9+-9+-9+`, and `1 Example Street, Demo City` becomes `9 Aa+ Aa+, Aa+ Aa+`. Classification is by Unicode category, so `प्रिया शर्मा` becomes `a+ a+`. The whole alphabet is the fifteen characters `aA9+?@.-_()/:, ` including the space.
 
 Bounds:
 
 - A value longer than 256 characters is not analysed. It is recorded as the fixed marker `a+ a+ a+ ...`, meaning long text.
 - A shape longer than 48 characters is cut to 45 and ends in `...`. Three dots cannot occur in a computed shape, because a run of dots is written `.+`, so the ending is unambiguous.
-- At most the three most common shapes per column are stored, each with the number of sampled rows that had it, most frequent first, ties in a fixed order.
-- While sampling, a column's counter holds at most 64 distinct shapes. Those are counted exactly. A shape first seen after 64 others is not counted. Rows are read in random order, so a shape present in one value in ten is missed with a probability of about 0.1%. A free-text column, where almost every value has its own shape, yields up to three shapes with one row each.
+- At most the three most common shapes per column are stored, each with the number of sampled rows that had it, most frequent first, ties in a fixed order. A shape that fewer than five sampled values have is not stored.
+- While sampling, a column's counter holds at most 64 distinct shapes. Those are counted exactly. A shape first seen after 64 others is not counted. Rows are read in random order, so a shape present in one value in ten is missed with a probability of about 0.1%. A free-text column, where almost every value has its own shape, usually yields none, because no single shape reaches five rows.
 
-Shapes are computed during the scan from the values already being read, for scalar columns only, and stored in `sanitized_evidence.shapes` as a list of `{"shape", "rows"}`. The key is optional everywhere. It is absent for JSON documents and JSON paths, for types that are not read, and for scans stored before shapes existed. A JSON document has no single form, and its text would spell out keys that can themselves be personal data, so no shape is computed for it. The list is empty when a column had no value with a form to keep.
+Shapes are computed during the scan from the values already being read, for character columns only (`text`, `varchar`, `char`, `citext`), and stored in `sanitized_evidence.shapes` as a list of `{"shape", "rows"}`. The key is optional everywhere. It is absent for numbers, dates, booleans and UUIDs (the type already says their form, and a shape would add only sign and magnitude), for JSON documents and JSON paths, for types that are not read, and for scans stored before shapes existed. A JSON document has no single form, and its text would spell out keys that can themselves be personal data, so no shape is computed for it. The list is empty when a column had no value with a form to keep.
 
-### Why a shape holds no value
+### What a shape hides, and what it shows
 
-Every class except the kept punctuation has many members, so a symbol does not say which character stood there, and collapsing runs removes lengths beyond "one" and "more than one". Two values with the same sequence of classes have the same shape. A shape can therefore look like a value only when the value is itself spelled with the symbols, as in `aA9`, and it is then indistinguishable from the shape of `xQ4`.
+No letter or digit of a value is in its shape. Every class except the kept punctuation has many members, so a symbol does not say which character stood there, and collapsing runs removes lengths beyond "one" and "more than one". Two values with the same sequence of classes have the same shape. A shape can therefore look like a value only when the value is itself spelled with the symbols, as in `aA9`, and it is then indistinguishable from the shape of `xQ4`.
 
-A kept punctuation mark is a class of one. That is deliberate: the marks are the signal that separates an email address from a date. It has two consequences.
+A kept punctuation mark is a class of one, so it does appear in the shape as itself. That is deliberate: the marks are the signal that separates an email address from a date. Three rules keep that from turning a shape back into a value, and one consequence remains.
 
+- A sign at either end of a value is written `?`. `O+` and `O-` share the shape `A?`, and `-12.50` and `+12.50` share `?9+.9+`, so a shape does not say which sign a value had.
+- A shape is stored only when at least five sampled values have it, so a stored shape never describes one person's value. A column where every value has its own form stores none.
 - A value made only of kept punctuation and spaces would have itself as its shape. Such content is usually a placeholder like `-`, but it can also carry meaning, for example text written in dots and dashes. **These values are dropped**: no shape is stored for them and they are not counted. The same applies to the empty string, and to a value whose shape holds punctuation only once it is cut to 48 characters.
 - For every other value the layout of its kept punctuation is visible in the shape, with runs reduced to one or many. A value that is mostly punctuation with a few letters keeps that layout. This is accepted as part of what a shape is.
 
-Shape counts are aggregate statistics, like category counts. They can show, for example, how many sampled values of a numeric column had one digit and how many had more.
+Shape counts are aggregate statistics, like category counts, and they are visible to every signed-in role in the scan results. In a column whose values differ only in form, the counts are that column's distribution: a `Yes`/`No` text column stores `Aa+` and `Aa` with their row counts, which says how many of each there were (though not which rows). If that distribution is itself sensitive, leave value shapes out of AI requests with `AI_SEND_SHAPES=false`; the counts are then stored but not sent to the model.
 
-The property is tested, not only argued, in `backend/tests/test_shapes.py`. About 6,000 generated values mix lowercase, uppercase and caseless letters and digits from several scripts, emoji, control characters, quotes, backslashes, combining marks and very long strings, plus the empty string. For every one, each character of the shape is in the fixed alphabet, the shape is at most 48 characters, no letter or digit of the value appears in it, and no pair of adjacent input characters containing a letter or digit appears in it. Those values avoid the characters `a`, `A` and `9`, so that any letter or digit found in a shape is a leak. Values that do contain them are covered by a second test, which replaces every letter and digit by another of its class and requires the shape to stay the same. A third requires punctuation-only values to be dropped. A fourth runs the same check against five deliberately leaky versions of the function (keeping digits, caseless letters, quotes, Cyrillic capitals or control characters) and requires each leak to be caught. A sampling test and an integration test on a real scan assert that no stored shape contains a fragment of the synthetic values.
+The property is tested, not only argued, in `backend/tests/test_shapes.py`. About 6,000 generated values mix lowercase, uppercase and caseless letters and digits from several scripts, emoji, control characters, quotes, backslashes, combining marks and very long strings, plus the empty string. For every one, each character of the shape is in the fixed alphabet, the shape is at most 48 characters, no letter or digit of the value appears in it, and no pair of adjacent input characters containing a letter or digit appears in it. Those values avoid the characters `a`, `A` and `9`, so that any letter or digit found in a shape is a leak. Values that do contain them are covered by a second test, which replaces every letter and digit by another of its class and requires the shape to stay the same. A third requires punctuation-only values to be dropped. A fourth runs the same check against five deliberately leaky versions of the function (keeping digits, caseless letters, quotes, Cyrillic capitals or control characters) and requires each leak to be caught. A sampling test and an integration test on a real scan assert that no stored shape contains a fragment of the synthetic values. Two further tests cover the sign rule (3,000 generated values, each tried with both signs at both ends, must give one shape) and the five-row minimum.
 
 ### Shapes at the adapter
 

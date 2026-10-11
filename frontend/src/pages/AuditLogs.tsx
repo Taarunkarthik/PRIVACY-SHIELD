@@ -55,6 +55,8 @@ function LogIntegrity() {
       setResult(null);
       setError(reason instanceof ApiError && reason.status === 403
         ? 'Only an administrator or auditor can verify the log.'
+        : reason instanceof ApiError && reason.status === 429
+        ? 'Another verification is still running. Try again in a few seconds.'
         : 'The log could not be verified. Nothing is known about its integrity until a check completes.');
     } finally {
       if (!controller.signal.aborted) setVerifying(false);

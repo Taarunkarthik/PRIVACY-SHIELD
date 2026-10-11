@@ -111,6 +111,8 @@ const LEVEL: Record<FieldStrength, number> = { hero: 1, ambient: 0.15 };
 const FONT_PX = 14;
 const ROW_HEIGHT = 30;
 const FRAME_MS = 1000 / 30;
+/** Behind the app the field is faint and slow, so half the frame rate and one canvas pixel per CSS pixel are enough. */
+const AMBIENT_FRAME_MS = 1000 / 15;
 const SCAN_SECONDS = 10;
 const SHIELD_RADIUS = 118;
 const SHIELD_SECONDS = 2.6;
@@ -139,6 +141,7 @@ export function createDataField(canvas: HTMLCanvasElement, context: CanvasRender
   let lastPaint = 0;
   /** Seconds of animation shown so far. It stands still while paused, so resuming never jumps. */
   let clock = 0;
+  let current = strength;
   let level = LEVEL[strength];
   let targetLevel = level;
   let destroyed = false;
@@ -160,7 +163,8 @@ export function createDataField(canvas: HTMLCanvasElement, context: CanvasRender
 
   function resize() {
     // Drawn at the display's pixel density, capped at 2x: beyond that the cost grows and the text looks no sharper.
-    const ratio = Math.min(window.devicePixelRatio || 1, 2);
+    // At ambient strength the text is too faint for the extra pixels to show, and they are four times the work.
+    const ratio = Math.min(window.devicePixelRatio || 1, current === 'ambient' ? 1 : 2);
     width = window.innerWidth;
     height = window.innerHeight;
     canvas.width = Math.round(width * ratio);
@@ -261,8 +265,10 @@ export function createDataField(canvas: HTMLCanvasElement, context: CanvasRender
     if (!animated || destroyed) return;
     frame = window.requestAnimationFrame(tick);
     const elapsed = time - lastPaint;
+    // The full rate while the field is the subject or the pointer is drawing on it; half that once it has settled into the background.
+    const settled = current === 'ambient' && level === targetLevel && !trail.length;
     // A little slack, so a display frame that lands a hair early still counts: 30 paints a second at 60 Hz or 120 Hz.
-    if (elapsed < FRAME_MS - 4) return;
+    if (elapsed < (settled ? AMBIENT_FRAME_MS : FRAME_MS) - 4) return;
     lastPaint = time;
     // A long gap (a background tab, a debugger) must not fast-forward the field.
     clock += Math.min(elapsed, 100) / 1000;
@@ -316,8 +322,12 @@ export function createDataField(canvas: HTMLCanvasElement, context: CanvasRender
       else { window.cancelAnimationFrame(frame); pointer = null; trail = []; paint(false); }
     },
     setStrength(next) {
+      if (next === current) return;
+      current = next;
       targetLevel = LEVEL[next];
-      if (!animated) { level = targetLevel; paint(false); }
+      if (!animated) level = targetLevel;
+      // The pixel density depends on the strength; resizing also repaints.
+      resize();
     },
     destroy() {
       destroyed = true;
