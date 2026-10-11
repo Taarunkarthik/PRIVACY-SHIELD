@@ -1,8 +1,10 @@
 """Turn scan findings and advisory classifications into suggested policy rules.
 
 A suggestion is a starting point for the person writing the policy. Nothing here
-creates, approves, or deploys anything, and every suggested mask fails closed, so
-a wrong suggestion hides a value rather than exposing it.
+creates, approves, or deploys anything. Every suggested mask fails closed, so a
+wrong mask hides a value rather than exposing it. ``KEEP`` is the one suggestion
+that exposes data, and it is offered only for a column whose sampled values were
+all read in full and produced no finding.
 """
 
 import re
@@ -103,6 +105,16 @@ def ai_action(recommendation: str, category: str, column: dict) -> str:
     return "REDACT"
 
 
+def fully_assessed(coverage: dict) -> bool:
+    """Whether every sampled value of a column was read completely.
+
+    A skipped, truncated, or path-limited value was not inspected, so "nothing
+    found" for that column is not evidence that it holds no personal data.
+    """
+    partial = ("values_skipped", "values_truncated", "json_truncated", "path_limit_reached")
+    return not coverage.get("unsupported_type") and not any(coverage.get(key) for key in partial)
+
+
 def _latest_completed_scan(db: Session, connection_id: UUID) -> ScanJob | None:
     return db.scalar(
         select(ScanJob)
@@ -188,9 +200,11 @@ def suggest_rules(
                 suggestion.action = ai_action(
                     classification.recommendation, classification.category, column
                 )
-            elif not coverage.get("unsupported_type"):
+            else:
                 suggestion.source = "NO_FINDINGS"
-                suggestion.action = "KEEP"
+                # No action for a partly read column: it stays NULL unless a
+                # person decides otherwise.
+                suggestion.action = "KEEP" if coverage and fully_assessed(coverage) else None
             if classification is not None:
                 suggestion.classification_id = classification.id
                 suggestion.ai_recommendation = classification.recommendation

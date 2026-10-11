@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { ArrowRight, Check, ChevronLeft, ChevronRight, Eye, FileClock, LockKeyhole, Play, Plus, RefreshCw, Send, ShieldCheck, Sparkles, X } from 'lucide-react';
 import { api, ApiError } from '../api/client';
@@ -11,6 +11,8 @@ import { actionHint, actionLabel, policyStatusLabel } from '../api/policies';
 const ACTIONS: PolicyAction[] = ['KEEP', 'MASK_EMAIL', 'MASK_PHONE', 'MASK_ID', 'PARTIAL', 'REDACT', 'PSEUDONYMIZE', 'NULLIFY', 'RESTRICT'];
 // The pseudonym key domain provisioned on the bundled demonstration target.
 const DEFAULT_PSEUDONYM_DOMAIN = 'demo';
+// The API accepts at most this many rules in one policy.
+const MAX_RULES = 200;
 
 export function Policies() {
   const { user } = useAuth();
@@ -33,6 +35,7 @@ export function Policies() {
   const [preview, setPreview] = useState<PolicyPreview | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [samples, setSamples] = useState<PolicySamples | null>(null);
+  const previewRequest = useRef(0);
   const [output, setOutput] = useState<ProtectedOutput | null>(null);
   const [outputLoading, setOutputLoading] = useState(false);
   const connectionId = params.get('connection') || connections.find((c) => c.is_active)?.id || connections[0]?.id || '';
@@ -107,17 +110,22 @@ export function Policies() {
   }
 
   async function loadPreview(id: string) {
+    // Each click supersedes the last one, so a slow earlier response cannot
+    // overwrite the preview that was asked for most recently.
+    const request = ++previewRequest.current;
+    const current = () => request === previewRequest.current;
     setPreviewLoading(true); setPreviewError(''); setPreview(null); setSamples(null);
     try {
       const v = await api<PolicyPreview>(`/policies/${encodeURIComponent(id)}/preview`);
+      if (!current()) return;
       setPreview(v);
       // The before/after illustration is optional: it needs the target database,
       // so the compiled preview is shown even when the illustration is unavailable.
       api<PolicySamples>(`/policies/${encodeURIComponent(id)}/preview/samples`)
-        .then((value) => setSamples(value.policy_id === id ? value : null))
-        .catch(() => setSamples(null));
-    } catch (r) { setPreviewError(r instanceof ApiError ? r.message : 'Could not load preview.'); }
-    finally { setPreviewLoading(false); }
+        .then((value) => { if (current()) setSamples(value); })
+        .catch(() => { if (current()) setSamples({ policy_id: id, status: 'UNAVAILABLE', source: 'FABRICATED', columns: [], before: [], after: [] }); });
+    } catch (r) { if (current()) setPreviewError(r instanceof ApiError ? r.message : 'Could not load preview.'); }
+    finally { if (current()) setPreviewLoading(false); }
   }
 
   async function loadOutput(id: string) {
@@ -126,7 +134,7 @@ export function Policies() {
       setOutput(await api<ProtectedOutput>(`/policies/${encodeURIComponent(id)}/protected-output`));
     } catch (r) {
       setActionError(r instanceof ApiError && r.status === 409
-        ? 'This version is not the one currently deployed for its table, so there is no protected output to show.'
+        ? 'Protected output is not available for this version. A newer version may have replaced it, or its connection or schema may have changed.'
         : r instanceof ApiError ? r.message : 'Could not load the protected output.');
     }
     finally { setOutputLoading(false); }
@@ -134,7 +142,9 @@ export function Policies() {
 
   // A preview or output belongs to one policy; hide it when another is selected.
   const shownPreview = preview && preview.policy_id === selectedId ? preview : null;
-  const shownSamples = shownPreview && samples?.status === 'OK' && samples.policy_id === selectedId ? samples : null;
+  const ownSamples = shownPreview && samples?.policy_id === selectedId ? samples : null;
+  const shownSamples = ownSamples?.status === 'OK' ? ownSamples : null;
+  const hasPseudonym = Boolean(shownSamples?.columns.some((col) => col.action === 'PSEUDONYMIZE'));
   const shownOutput = output && output.policy_id === selectedId ? output : null;
 
   return <div className="page-content policies-page">
@@ -203,7 +213,7 @@ export function Policies() {
         {shownSamples
           ? <div className="table-scroll">
             <table className="columns-table masking-table">
-              <caption className="masking-caption">Each example value is run through the policy's real masking expression in PostgreSQL. The examples are invented: no rows are read from your database.</caption>
+              <caption className="masking-caption">Each example value is run through the policy's real masking expression in PostgreSQL. The examples are invented: no rows are read from your database.{hasPseudonym && ' A pseudonym shown here is a stand-in of the same shape; real tokens are made with a secret key kept in the target database.'}</caption>
               <thead><tr><th scope="col">Column</th><th scope="col">Action</th><th scope="col">Example value</th><th scope="col">After masking</th></tr></thead>
               <tbody>{shownSamples.columns.map((col, index) => (
                 <tr className="preview-column" key={col.name}>
@@ -216,6 +226,7 @@ export function Policies() {
             </table>
           </div>
           : <div className="preview-columns">
+            {ownSamples?.status === 'UNAVAILABLE' && <p className="rules-editor-note">Example values are not available right now because the target database could not be used. The compiled plan below is unaffected.</p>}
             {shownPreview.columns.map((col) => (
               <div className="preview-column" key={col.name}>
                 <span className="preview-col-name">{col.name}</span>
@@ -256,7 +267,11 @@ function MaskedCell({ value, changed = false }: { value: string | null; changed?
 
 function suggestionNote(suggestion: RuleSuggestion | undefined): string {
   if (!suggestion || suggestion.source === 'NOT_SCANNED') return 'Not scanned yet';
-  if (suggestion.source === 'NO_FINDINGS') return `Nothing found in ${suggestion.sampled_rows.toLocaleString()} sampled rows`;
+  if (suggestion.source === 'NO_FINDINGS') {
+    return suggestion.action
+      ? `Nothing found in ${suggestion.sampled_rows.toLocaleString()} sampled rows`
+      : 'Could not be read in full, so there is no suggestion';
+  }
   const category = classificationCategory(suggestion.category ?? '');
   return suggestion.source === 'AI'
     ? `${category} (AI suggestion)`
@@ -313,9 +328,13 @@ function CreatePolicyDialog({ connectionId, onClose, onError, onCreated }: { con
     });
   }
 
+  // Suggestions fill only the columns still without a rule, so a choice already
+  // made by hand is never overwritten.
+  const pending = suggested.filter((item) => !rules[item.column_name]);
   function applySuggestions() {
-    setRules(Object.fromEntries(suggested.map((item) => [item.column_name, item.action as PolicyAction])));
+    setRules((prev) => ({ ...Object.fromEntries(pending.map((item) => [item.column_name, item.action as PolicyAction])), ...prev }));
   }
+  const ruleCount = Object.keys(rules).length;
 
   async function create() {
     if (!table || !user) return;
@@ -357,7 +376,7 @@ function CreatePolicyDialog({ connectionId, onClose, onError, onCreated }: { con
           {table && <div className="rules-editor">
             <div className="suggestion-bar">
               <p className="rules-editor-note">Choose what the reader role sees in each column. A column with no rule is returned as NULL.</p>
-              {suggested.length > 0 && <button type="button" className="button secondary" onClick={applySuggestions}><Sparkles size={14} /> Apply {suggested.length} suggestions</button>}
+              {pending.length > 0 && <button type="button" className="button secondary" onClick={applySuggestions}><Sparkles size={14} /> Apply {pending.length} {pending.length === 1 ? 'suggestion' : 'suggestions'}</button>}
             </div>
             {suggestions && !suggestions.scan_id && <p className="rules-editor-note">No completed scan for this connection yet, so there are no suggestions. Run a scan to get them.</p>}
             <div className="rules-editor-list">
@@ -385,7 +404,8 @@ function CreatePolicyDialog({ connectionId, onClose, onError, onCreated }: { con
           </div>}
           <div className="modal-actions">
             <button className="button secondary" onClick={onClose}>Cancel</button>
-            <button className="button primary" disabled={!table || loading || Object.keys(rules).length === 0} onClick={create}>{loading ? 'Creating…' : 'Create policy'}</button>
+            {ruleCount > MAX_RULES && <p className="rules-editor-note" role="alert">A policy can hold at most {MAX_RULES} rules. Remove {ruleCount - MAX_RULES} to continue; columns without a rule are returned as NULL.</p>}
+            <button className="button primary" disabled={!table || loading || ruleCount === 0 || ruleCount > MAX_RULES} onClick={create}>{loading ? 'Creating…' : 'Create policy'}</button>
           </div>
         </>}
     </div>

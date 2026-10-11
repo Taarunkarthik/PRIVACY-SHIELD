@@ -18,7 +18,7 @@ stable column list.
 | `KEEP` | `"col" AS "col"` | Pass-through, original type preserved |
 | `REDACT` | `CASE WHEN "col" IS NULL THEN NULL ELSE '[REDACTED]' END` | Text output; `NULL` preserved |
 | `PARTIAL` | `CASE WHEN "col" IS NULL THEN NULL ELSE '***' \|\| right("col"::text, 4) END` | Text output; last four characters retained |
-| `MASK_EMAIL` | `left(v,1) \|\| '***' \|\| <domain>` when `v` is one address, else `'***'` | `c***@example.com`; text output |
+| `MASK_EMAIL` | `left(v,1) \|\| '***' \|\| '@' \|\| <host>` when `v` is exactly one address, else `'***'` | `c***@example.com`; the part after `@` must be a plain host name |
 | `MASK_PHONE` | every digit but the last four replaced by `*`, punctuation kept; else `'***'` | `+** ***** *0001`; needs 8+ digits and no letters |
 | `MASK_ID` | every letter and digit but the last four replaced by `*`, separators kept; else `'***'` | `**** **** 0001`, `******001F`; for PAN, Aadhaar, card and account numbers |
 | `PSEUDONYMIZE` | `encode(extensions.hmac(convert_to("col"::text,'UTF8'), key, 'sha256'),'hex')` | Deterministic, keyed, text output |
@@ -29,6 +29,15 @@ The three format-aware masks fail closed. A value that does not have the shape
 the mask expects (free text in an email column, a phone field holding a name) is
 replaced entirely with `***`, so a wrongly chosen mask hides data instead of
 leaking part of it. `NULL` stays `NULL`.
+
+For `MASK_EMAIL` the shape is strict: a local part of at most 64 characters, one
+`@`, then a host name made only of letters, digits, dots and hyphens. The host
+is shown in full, so without that rule anything following an address would be
+shown too: `a@b.com;9876543210` or a JSON string containing an address. Those are
+replaced entirely. What each mask deliberately reveals is the first character
+and the host of an email, and the last four characters of a phone or ID number.
+`MASK_ID` applied to a sentence that contains a digit keeps the sentence's word
+lengths and its last four characters, so use `REDACT` for free text.
 
 `PSEUDONYMIZE` reads its key from `privacyshield_private.pseudonym_keys` by
 domain. Equal values with the same domain produce equal pseudonyms; unrelated
@@ -63,14 +72,21 @@ the latest completed scan of its connection:
   format mask cannot handle either.
 - A column the detectors did not flag, but which has an advisory AI
   classification, gets the mask for that classification.
-- A scanned column with no findings gets `KEEP`. A column that was not scanned,
-  or whose type the scanner cannot read, gets no suggestion and stays `NULL`
-  unless a person chooses otherwise.
+- A scanned column with no findings gets `KEEP`, the one suggestion that
+  exposes data, and only when every sampled value was read in full. A column
+  with any skipped, truncated or path-limited value, a type the scanner cannot
+  read, or no scan at all gets no suggestion and stays `NULL` unless a person
+  chooses otherwise.
 
 Each suggestion carries its evidence: source, category, and matching rows out of
 sampled rows. The policy editor shows that beside the column and applies the
-suggestions only when asked. A suggestion creates nothing; a person still
-creates, submits, approves and deploys the policy.
+suggestions only when asked, and only to columns that have no rule yet. A
+suggestion creates nothing; a person still creates, submits, approves and
+deploys the policy.
+
+"Nothing found" describes the sampled rows. A column that was empty in every
+sampled row also reports nothing found, so review a `KEEP` suggestion as a
+suggestion.
 
 ## Preview with example values
 
@@ -85,10 +101,20 @@ FROM (VALUES ($1::bigint, $2::text, ...)) AS src("id", "email", ...)
 ```
 
 The only relation in the query is the `VALUES` list, so no source row is read,
-and the output is what the deployed view will produce for those inputs because it
-is the same expression. The response is marked `source: FABRICATED`. If the
-target is unreachable or no deployer is configured, the status is `UNAVAILABLE`
-and the compiled preview still works.
+and for every action but one the output is what the deployed view will produce
+for those inputs, because it is the same expression.
+
+The exception is `PSEUDONYMIZE`. A real pseudonym is an HMAC under a secret key
+held in the target database. Returning real tokens for known example inputs
+would let anyone with preview access match them against masked output, so the
+preview shows an unkeyed SHA-256 digest of the same shape instead and the editor
+says so. The preview therefore reads no key and needs no role beyond the
+deployer's own login.
+
+The response is marked `source: FABRICATED`. If the target is unreachable or no
+deployer is configured, the status is `UNAVAILABLE` and the compiled preview
+still works. If an example cannot be cast to a column's type (a value too wide
+for `numeric(3,2)`), the preview falls back to examples for text columns only.
 
 ## Lifecycle
 
@@ -142,8 +168,9 @@ and receipt check, make duplicate and interrupted deployments safe.
 ## Protected output
 
 `GET /api/v1/policies/{id}/protected-output` is the evidence that a deployed
-policy works. For the version currently deployed on its table, it returns up to
-five rows read through the masked view, and two facts read from the catalog:
+policy works. For the version deployed last on its table, through any connection
+to that database, it returns up to five rows read through the masked view, and
+two facts read from the catalog:
 whether the reader role can read the view, and whether it can read the source
 table.
 

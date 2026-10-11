@@ -125,3 +125,20 @@ def test_large_tables_are_page_sampled_before_rows_are_chosen(late_pii_table, mo
     # the pages it picks are spread across both halves of the table.
     assert 0 < result["sampled_rows"] <= SAMPLE
     assert 0 < result["matching_rows"] < result["sampled_rows"]
+
+
+def test_a_thin_page_sample_falls_back_to_considering_every_row(late_pii_table, monkeypatch):
+    # One pre-selected page cannot supply 100 rows, as with a bloated table or
+    # one where row-level security hides most rows. The sample must still be full.
+    monkeypatch.setattr(sampling, "LARGE_TABLE_BYTES", 0)
+    monkeypatch.setattr(sampling, "MIN_CANDIDATE_PAGES", 1)
+    monkeypatch.setattr(sampling, "PAGE_BYTES", 64)
+    with _connect("ps_scanner", os.environ["TEST_TARGET_SCANNER_PASSWORD"]) as scanner:
+        size = sampling.table_bytes(scanner, late_pii_table)
+        percent = sampling.page_sample_percent(size, SAMPLE)
+        tablesample, _ = sampling.row_selection(size, SAMPLE, 1)
+        assert percent is not None and percent < 2
+        assert sampling.page_sample_is_thin(scanner, late_pii_table, tablesample, SAMPLE)
+    result = _contact_result(late_pii_table, sample_seed("scan-c"))
+    assert result["sampled_rows"] == SAMPLE
+    assert 20 <= result["matching_rows"] <= 80

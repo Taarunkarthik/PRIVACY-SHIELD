@@ -21,6 +21,9 @@ _DATA_TYPE_PATTERN = re.compile(r"^[A-Za-z0-9_ .,()\[\]]{1,96}$")
 # Shown when a value does not have the shape its mask expects. Nothing from the
 # source value is revealed in that case (fail closed).
 MASK_FALLBACK = "***"
+# One address: up to 64 characters with no "@" or whitespace, an "@", then a host
+# name that starts and ends with a letter or digit. POSIX classes, no backslashes.
+EMAIL_SHAPE = r"^[^@[:space:]]{1,64}@[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$"
 
 
 class CompileError(ValueError):
@@ -87,14 +90,16 @@ def _pseudonym_expr(domain: str, source_column: str) -> str:
 def _mask_email_expr(source: str) -> str:
     """Keep the first character and the domain: ``c***@example.com``.
 
-    Only a value with exactly one ``@`` and no whitespace is treated as an
-    address. Anything else is replaced entirely, so free text stored in an
-    email column is never partially exposed.
+    The value must be a single address and nothing else: a local part, one
+    ``@``, then a plain host name made only of letters, digits, dots and
+    hyphens. Anything else is replaced entirely. Without the host-name rule,
+    whatever followed the ``@`` would be shown, so ``a@b.com;9876543210`` or a
+    JSON string holding an address would leak the rest of the value.
     """
     text = f"{source}::text"
     return (
         f"CASE WHEN {source} IS NULL THEN NULL "
-        f"WHEN {text} ~ '^[^@[:space:]]+@[^@[:space:]]+$' "
+        f"WHEN {text} ~ '{EMAIL_SHAPE}' "
         f"THEN left({text}, 1) || '***' || substring({text} from '@.*$') "
         f"ELSE '{MASK_FALLBACK}' END"
     )
@@ -239,13 +244,32 @@ def compile_plan(
     )
 
 
+def _sample_expression(decision: ColumnDecision) -> str:
+    """The expression a sample preview runs for one column.
+
+    Identical to the deployed expression, except for pseudonyms. A real
+    pseudonym is an HMAC under a secret key held on the target. Returning it for
+    known example inputs would hand out real tokens, which could be matched
+    against masked output, so the preview shows an unkeyed digest of the same
+    shape instead. That also keeps the preview free of any table access.
+    """
+    if decision.action != "PSEUDONYMIZE":
+        return column_expression(decision)
+    source = quote_ident(decision.source_column or decision.name)
+    return (
+        f"CASE WHEN {source} IS NULL THEN NULL "
+        f"ELSE encode(sha256(convert_to({source}::text, 'UTF8')), 'hex') END"
+    )
+
+
 def compile_sample_query(columns: list[ColumnDecision], row_count: int) -> str:
     """Build a query that runs the plan's expressions over supplied literal rows.
 
-    The source is a ``VALUES`` list of bound parameters, never a table, so the
-    result shows exactly what the deployed view would produce for those inputs
-    without reading a single source row. Each output row holds the text form of
-    every input followed by the text form of every masked expression.
+    The source is a ``VALUES`` list of bound parameters and nothing else: no
+    table, no key, no source row. For every action but ``PSEUDONYMIZE`` the
+    result is exactly what the deployed view would produce for those inputs.
+    Each output row holds the text form of every input followed by the text
+    form of every masked expression.
     """
     if not columns or not 1 <= row_count <= 10:
         raise CompileError("A sample query needs columns and between 1 and 10 rows")
@@ -260,7 +284,7 @@ def compile_sample_query(columns: list[ColumnDecision], row_count: int) -> str:
         for index, c in enumerate(columns)
     ]
     after = [
-        f"({column_expression(c)})::text AS after_{index}" for index, c in enumerate(columns)
+        f"({_sample_expression(c)})::text AS after_{index}" for index, c in enumerate(columns)
     ]
     return f"SELECT {', '.join(before + after)} FROM (VALUES {values}) AS src({names})"
 

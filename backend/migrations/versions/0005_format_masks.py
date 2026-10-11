@@ -11,8 +11,7 @@ down_revision = "0004_settings"
 branch_labels = None
 depends_on = None
 
-# op.f() marks the name as final so the naming convention is not applied twice.
-_CONSTRAINT = op.f("ck_policy_rules_valid_action")
+_NAME = "ck_policy_rules_valid_action"
 _PREVIOUS = "action IN ('KEEP','REDACT','PARTIAL','PSEUDONYMIZE','NULLIFY','RESTRICT')"
 _CURRENT = (
     "action IN ('KEEP','REDACT','PARTIAL','MASK_EMAIL','MASK_PHONE','MASK_ID',"
@@ -20,17 +19,29 @@ _CURRENT = (
 )
 
 
+def _replace_constraint(condition: str) -> None:
+    # op.f() marks the name as final, so the naming convention is not applied
+    # twice. It is only usable while a migration is running, hence not at import.
+    name = op.f(_NAME)
+    op.drop_constraint(name, "policy_rules", type_="check")
+    op.create_check_constraint(name, "policy_rules", condition)
+
+
 def upgrade() -> None:
-    op.drop_constraint(_CONSTRAINT, "policy_rules", type_="check")
-    op.create_check_constraint(_CONSTRAINT, "policy_rules", _CURRENT)
+    _replace_constraint(_CURRENT)
 
 
 def downgrade() -> None:
-    # Rules using a format-aware mask fall back to the stricter whole-value
-    # redaction, so a downgrade never exposes more than the approved policy did.
-    op.execute(
-        "UPDATE policy_rules SET action = 'REDACT' "
+    # A rule is part of an approved, fingerprinted policy. Rewriting it would
+    # leave approvals and deployed views describing something else, so the
+    # downgrade stops instead when format-aware masks are in use.
+    in_use = op.get_bind().exec_driver_sql(
+        "SELECT count(*) FROM policy_rules "
         "WHERE action IN ('MASK_EMAIL','MASK_PHONE','MASK_ID')"
-    )
-    op.drop_constraint(_CONSTRAINT, "policy_rules", type_="check")
-    op.create_check_constraint(_CONSTRAINT, "policy_rules", _PREVIOUS)
+    ).scalar()
+    if in_use:
+        raise RuntimeError(
+            f"{in_use} policy rules use format-aware masks; "
+            "remove those policies before downgrading"
+        )
+    _replace_constraint(_PREVIOUS)

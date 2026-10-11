@@ -9,13 +9,13 @@ import psycopg
 import pytest
 from fastapi.testclient import TestClient
 from psycopg.rows import dict_row
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.api.auth import LoginThrottle
 from app.core.database import session_factory
 from app.core.security import hash_password
 from app.main import app
-from app.models import AuditEvent, PolicyDeployment, User
+from app.models import AuditEvent, PolicyDeployment, ScanJob, ScanResult, User
 from app.services.policies.execution import run_deployment
 
 pytestmark = pytest.mark.integration
@@ -430,18 +430,215 @@ def test_dashboard_insights_match_the_overview_and_track_coverage(admin_client, 
     flagged = [c["column_name"] for c in suggestions["columns"] if c["source"] == "DETECTOR"]
     assert "email" in flagged and len(flagged) >= 5
 
-    # Deploy a policy that deliberately keeps email readable. Every other
-    # flagged column is masked or left without a rule (NULL), so it is covered.
+    # A view belongs to the table, so coverage follows the version deployed last
+    # for enterprise.customers whichever connection record deployed it. First a
+    # version with no rule for email (NULL in the view), then one that keeps it.
+    def deploy_customers(rules):
+        policy_id = _create_policy(admin_client, connection_id, snapshot_id, "customers", rules)
+        _approve(admin_client, policy_id)
+        assert _deploy(admin_client, db, policy_id)[1] == "DEPLOYED"
+        return admin_client.get("/api/v1/dashboard/insights").json()["coverage"]
+
+    hidden = deploy_customers([{"column_name": "id", "action": "KEEP"}])
+    exposed = deploy_customers(
+        [{"column_name": "id", "action": "KEEP"}, {"column_name": "email", "action": "KEEP"}]
+    )
+    assert hidden["sensitive_columns"] == exposed["sensitive_columns"] == sensitive
+
+    # Keeping email uncovers exactly the email findings of this table: one per
+    # connection whose latest completed scan flagged it.
+    latest_scans = (
+        select(ScanJob.id)
+        .where(ScanJob.status == "COMPLETED")
+        .distinct(ScanJob.connection_id)
+        .order_by(ScanJob.connection_id, ScanJob.created_at.desc())
+    )
+    email_findings = db.scalar(
+        select(func.count())
+        .select_from(ScanResult)
+        .where(
+            ScanResult.scan_job_id.in_(latest_scans),
+            ScanResult.schema_name == "enterprise",
+            ScanResult.table_name == "customers",
+            ScanResult.column_name == "email",
+            ScanResult.json_path == "",
+            ScanResult.matching_rows > 0,
+        )
+    )
+    assert email_findings >= 1
+    assert hidden["protected_columns"] - exposed["protected_columns"] == email_findings
+
+
+# (value, MASK_EMAIL, MASK_PHONE, MASK_ID) evaluated by PostgreSQL itself.
+ADVERSARIAL_VALUES = [
+    (None, None, None, None),
+    ("", "***", "***", "***"),
+    ("customer1@example.com", "c***@example.com", "***", "***"),
+    ("first.last+tag@mail.example.org", "f***@mail.example.org", "***", "***"),
+    # Anything after the address must not ride along behind the "@".
+    ("priya@example.com;9876543210;ABCPK1234F", "***", "***", "***"),
+    ('{"email":"a@b.com","ssn":"123-45-6789"}', "***", "***", "***"),
+    ("https://alice:s3cret@example.com/reset?token=abc123", "***", "***", "***"),
+    ("a@b.com\nsecret line", "***", "***", "***"),
+    ("a@b.com ", "***", "***", "***"),
+    ("two@signs@example.com", "***", "***", "***"),
+    ("x" * 65 + "@example.com", "***", "***", "***"),
+    ("名前@example.com", "名***@example.com", "***", "***"),
+    ("+91 90000 00001", "***", "+** ***** *0001", "***"),
+    ("(022) 2345-6789", "***", "(***) ****-6789", "***"),
+    ("12345", "***", "***", "***"),
+    ("call John 9000000001", "***", "***", "**** **** ******0001"),
+    ("2345 6789 0001", "***", "**** **** 0001", "**** **** 0001"),
+    ("ABCDE1234F", "***", "***", "******234F"),
+    ("4111-1111-1111-1111", "***", "****-****-****-1111", "****-****-****-1111"),
+    ("x'; DROP TABLE enterprise.customers; --", "***", "***", "***"),
+    ("9" * 80, "***", "***", "***"),
+]
+
+
+def test_format_masks_fail_closed_on_adversarial_values():
+    from app.services.policies.compiler import ColumnDecision, compile_sample_query
+
+    host, port, passwords = _target_env()
+    columns = [
+        ColumnDecision(name=name, data_type="text", action=action, source_column=name)
+        for name, action in (("e", "MASK_EMAIL"), ("p", "MASK_PHONE"), ("i", "MASK_ID"))
+    ]
+    with _connect(host, port, "ps_deployer", passwords["deployer"]) as deployer:
+        for start in range(0, len(ADVERSARIAL_VALUES), 7):
+            chunk = ADVERSARIAL_VALUES[start : start + 7]
+            params = [case[0] for case in chunk for _ in columns]
+            rows = deployer.execute(compile_sample_query(columns, len(chunk)), params).fetchall()
+            for case, row in zip(chunk, rows, strict=True):
+                assert (row["after_0"], row["after_1"], row["after_2"]) == case[1:], case[0]
+
+
+def test_sample_preview_shows_no_real_pseudonym(admin_client, db):
+    import hashlib
+
+    host, port, passwords = _target_env()
+    connection_id, snapshot_id = _register(admin_client, host, port, passwords)
     policy_id = _create_policy(
         admin_client,
         connection_id,
         snapshot_id,
-        "customers",
-        [{"column_name": "id", "action": "KEEP"}, {"column_name": "email", "action": "KEEP"}],
+        "accounts",
+        [
+            {"column_name": "customer_id", "action": "PSEUDONYMIZE", "pseudonym_domain": "demo"},
+            {"column_name": "account_number", "action": "PSEUDONYMIZE", "pseudonym_domain": "demo"},
+        ],
     )
+    body = admin_client.get(f"/api/v1/policies/{policy_id}/preview/samples").json()
+    assert body["status"] == "OK"
+    names = [column["name"] for column in body["columns"]]
+    for before_row, after_row in zip(body["before"], body["after"], strict=True):
+        before = dict(zip(names, before_row, strict=True))
+        after = dict(zip(names, after_row, strict=True))
+        for name in ("customer_id", "account_number"):
+            # An unkeyed digest of the invented input: nothing from the target's
+            # secret key, so it cannot be matched against real masked output.
+            assert after[name] == hashlib.sha256(before[name].encode()).hexdigest()
+
+    # The deployed view does use the key, and so produces a different token.
     _approve(admin_client, policy_id)
     assert _deploy(admin_client, db, policy_id)[1] == "DEPLOYED"
-    after = admin_client.get("/api/v1/dashboard/insights").json()
-    gained = after["coverage"]["protected_columns"] - body["coverage"]["protected_columns"]
-    assert gained == len(flagged) - 1
-    assert after["coverage"]["sensitive_columns"] == sensitive
+    preview = admin_client.get(f"/api/v1/policies/{policy_id}/preview").json()
+    view = f'{preview["view_schema"]}."{preview["view_name"]}"'
+    with _connect(host, port, "ps_reader", passwords["reader"]) as reader:
+        tokens = [r["customer_id"] for r in reader.execute(f"SELECT customer_id FROM {view}")]
+    assert len(tokens) == 100 and all(len(token) == 64 for token in tokens)
+    assert hashlib.sha256(b"1").hexdigest() not in tokens
+
+
+@pytest.fixture
+def awkward_table():
+    """A narrow numeric column and JSON too large for the scanner to read."""
+    host, port, passwords = _target_env()
+    schema = "ps_mask_" + uuid.uuid4().hex[:16]
+    with _connect(host, port, "postgres", passwords["superuser"]) as admin:
+        try:
+            admin.execute(f"CREATE SCHEMA {schema}")
+            admin.execute(
+                f"CREATE TABLE {schema}.readings (id int PRIMARY KEY, ratio numeric(3,2), "
+                "label text, payload jsonb)"
+            )
+            admin.execute(
+                f"INSERT INTO {schema}.readings SELECT n, 0.5, 'reading ' || n, "
+                "jsonb_build_object('blob', repeat('x', 20000)) FROM generate_series(1, 5) AS n"
+            )
+            admin.execute(f"GRANT USAGE ON SCHEMA {schema} TO ps_scanner")
+            admin.execute(f"GRANT SELECT ON {schema}.readings TO ps_scanner")
+            yield schema
+        finally:
+            admin.execute(f"DROP SCHEMA IF EXISTS {schema} CASCADE")
+
+
+def test_partly_read_columns_get_no_keep_and_preview_survives_narrow_types(
+    admin_client, awkward_table
+):
+    host, port, passwords = _target_env()
+    connection = admin_client.post(
+        "/api/v1/connections",
+        json={
+            "name": f"awkward-{uuid.uuid4().hex[:10]}",
+            "host": host,
+            "port": port,
+            "database_name": "enterprise_demo",
+            "ssl_mode": "disable",
+            "scanner_username": "ps_scanner",
+            "scanner_password": passwords["scanner"],
+            "deployer_username": "ps_deployer",
+            "deployer_password": passwords["deployer"],
+        },
+    )
+    assert connection.status_code == 201, connection.text
+    connection_id = connection.json()["id"]
+    snapshot_id = admin_client.post(
+        f"/api/v1/connections/{connection_id}/discover", json={"schemas": [awkward_table]}
+    ).json()["snapshot_id"]
+    scan = admin_client.post(
+        "/api/v1/scans",
+        json={"connection_id": connection_id, "snapshot_id": snapshot_id, "sample_limit": 5},
+    ).json()
+    deadline = time.monotonic() + 90
+    while time.monotonic() < deadline:
+        status = admin_client.get(f"/api/v1/scans/{scan['id']}").json()["status"]
+        if status in ("COMPLETED", "FAILED", "CANCELLED"):
+            break
+        time.sleep(0.5)
+    assert status == "COMPLETED"
+
+    suggestions = admin_client.get(
+        f"/api/v1/policies/suggestions?connection_id={connection_id}"
+        f"&snapshot_id={snapshot_id}&schema_name={awkward_table}&table_name=readings"
+    ).json()
+    by_name = {column["column_name"]: column for column in suggestions["columns"]}
+    assert by_name["id"]["source"] == "NO_FINDINGS" and by_name["id"]["action"] == "KEEP"
+    # Every payload value was too large to read, so "nothing found" is not
+    # evidence and the column must not be offered as safe to keep.
+    assert by_name["payload"]["source"] == "NO_FINDINGS"
+    assert by_name["payload"]["action"] is None
+
+    policy = admin_client.post(
+        "/api/v1/policies",
+        json={
+            "connection_id": connection_id,
+            "schema_name": awkward_table,
+            "table_name": "readings",
+            "snapshot_id": snapshot_id,
+            "rules": [
+                {"column_name": "ratio", "action": "KEEP"},
+                {"column_name": "label", "action": "REDACT"},
+            ],
+        },
+    )
+    assert policy.status_code == 201, policy.text
+    samples = admin_client.get(f"/api/v1/policies/{policy.json()['id']}/preview/samples").json()
+    # 2500.75 does not fit numeric(3,2). The preview drops to text-only examples
+    # instead of becoming unavailable for the whole table.
+    assert samples["status"] == "OK"
+    names = [column["name"] for column in samples["columns"]]
+    first_before = dict(zip(names, samples["before"][0], strict=True))
+    first_after = dict(zip(names, samples["after"][0], strict=True))
+    assert first_before["ratio"] is None and first_after["ratio"] is None
+    assert first_before["label"] == "Sample text 1" and first_after["label"] == "[REDACTED]"

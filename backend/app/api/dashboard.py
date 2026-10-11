@@ -27,8 +27,8 @@ router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
 RISK_LEVELS = ("CRITICAL", "HIGH", "MEDIUM", "LOW")
 POLICY_STATUSES = ("DRAFT", "PENDING_APPROVAL", "APPROVED", "DEPLOYED", "REJECTED", "FAILED")
-# Used only when a column has no advisory classification: government and card
-# identifiers rank above contact details, which rank above names and places.
+# Risk by detected category: government and card identifiers rank above contact
+# details, which rank above names and places.
 CATEGORY_RISK = {
     "AADHAAR_CANDIDATE": "CRITICAL",
     "PAN_CANDIDATE": "CRITICAL",
@@ -75,7 +75,7 @@ class DashboardInsights(BaseModel):
 
     categories: list[CategoryCount]
     risks: list[RiskCount]
-    # How many of the risk levels came from an advisory classification.
+    # How many of the columns also had an advisory classification to weigh.
     risks_from_ai: int
     policy_status: list[StatusCount]
     coverage: Coverage
@@ -145,22 +145,42 @@ def summary(
     )
 
 
+def _column_risk(category_counts: dict, ai_risk: str | None) -> str:
+    """The highest risk level among everything detected in a column.
+
+    A column holding names in most rows and Aadhaar numbers in a few is as
+    sensitive as its Aadhaar numbers, so the most frequent category alone would
+    understate it. An advisory classification can raise the level, never lower it.
+    """
+    levels = [CATEGORY_RISK.get(category, DEFAULT_RISK) for category in category_counts]
+    if ai_risk in RISK_LEVELS:
+        levels.append(ai_risk)
+    return min(levels or [DEFAULT_RISK], key=RISK_LEVELS.index)
+
+
 def _deployed_rules(db: Session) -> dict[tuple, dict[str, str]]:
-    """Rules of the policy most recently deployed for each table, keyed by table."""
+    """Rules of the policy most recently deployed for each table.
+
+    Keyed by target database and table, not by connection record: a view belongs
+    to a table, and two connections to one database share it.
+    """
     deployed = db.execute(
         select(
             MaskingPolicy.id,
-            MaskingPolicy.connection_id,
+            DatabaseConnection.host,
+            DatabaseConnection.port,
+            DatabaseConnection.database_name,
             MaskingPolicy.schema_name,
             MaskingPolicy.table_name,
         )
         .join(PolicyDeployment, PolicyDeployment.policy_id == MaskingPolicy.id)
+        .join(DatabaseConnection, DatabaseConnection.id == MaskingPolicy.connection_id)
         .where(PolicyDeployment.status == "COMPLETED")
         .order_by(PolicyDeployment.finished_at.desc(), PolicyDeployment.id.desc())
     ).all()
     latest: dict[tuple, object] = {}
-    for policy_id, connection_id, schema_name, table_name in deployed:
-        latest.setdefault((connection_id, schema_name, table_name), policy_id)
+    for policy_id, *table in deployed:
+        latest.setdefault(tuple(table), policy_id)
     if not latest:
         return {}
     rules: dict[object, dict[str, str]] = {policy_id: {} for policy_id in latest.values()}
@@ -183,8 +203,14 @@ def insights(
         .order_by(ScanJob.connection_id, ScanJob.created_at.desc())
     )
     sensitive = db.execute(
-        select(ScanResult, ScanJob.connection_id)
+        select(
+            ScanResult,
+            DatabaseConnection.host,
+            DatabaseConnection.port,
+            DatabaseConnection.database_name,
+        )
         .join(ScanJob, ScanJob.id == ScanResult.scan_job_id)
+        .join(DatabaseConnection, DatabaseConnection.id == ScanJob.connection_id)
         .where(
             ScanResult.scan_job_id.in_(latest_jobs),
             ScanResult.json_path == "",
@@ -195,7 +221,7 @@ def insights(
     if sensitive:
         classified = db.execute(
             select(PIIClassification.scan_result_id, PIIClassification.risk)
-            .where(PIIClassification.scan_result_id.in_([result.id for result, _ in sensitive]))
+            .where(PIIClassification.scan_result_id.in_([row[0].id for row in sensitive]))
             .order_by(PIIClassification.created_at, PIIClassification.id)
         )
         # Later rows overwrite earlier ones, leaving the newest per column.
@@ -205,11 +231,11 @@ def insights(
     categories: dict[str, int] = {}
     risks = dict.fromkeys(RISK_LEVELS, 0)
     protected = 0
-    for result, connection_id in sensitive:
+    for result, *database in sensitive:
         category = dominant_category(result.category_counts) or "OTHER"
         categories[category] = categories.get(category, 0) + 1
-        risks[ai_risk.get(result.id) or CATEGORY_RISK.get(category, DEFAULT_RISK)] += 1
-        rules = deployed.get((connection_id, result.schema_name, result.table_name))
+        risks[_column_risk(result.category_counts, ai_risk.get(result.id))] += 1
+        rules = deployed.get((*database, result.schema_name, result.table_name))
         # In a deployed view a column without a rule is NULL, so only KEEP exposes it.
         if rules is not None and rules.get(result.column_name) != "KEEP":
             protected += 1
@@ -228,7 +254,7 @@ def insights(
             for name, count in sorted(categories.items(), key=lambda item: (-item[1], item[0]))
         ],
         risks=[RiskCount(risk=level, columns=risks[level]) for level in RISK_LEVELS],
-        risks_from_ai=sum(1 for result, _ in sensitive if result.id in ai_risk),
+        risks_from_ai=sum(1 for row in sensitive if row[0].id in ai_risk),
         policy_status=[
             StatusCount(status=status, policies=status_counts.get(status, 0))
             for status in POLICY_STATUSES

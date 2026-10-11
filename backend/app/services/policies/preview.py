@@ -151,25 +151,45 @@ def _sample_columns(decisions: list[ColumnDecision]) -> list[SampleColumn]:
 
 
 def illustrative_samples(db: Session, policy_id: UUID) -> PolicySamples:
-    """Run the compiled expressions over fabricated values on the target server."""
+    """Run the compiled expressions over fabricated values on the target server.
+
+    The query touches no table and needs no role beyond the deployer's own
+    login, so it runs without assuming the view owner. Pseudonym columns show an
+    unkeyed digest, never a token made with the target's secret key.
+    """
     policy, connection, plan = _policy_context(db, policy_id)
     catalog = policy_catalog_columns(db, policy)
     decisions = plan.columns
     inputs = [sample_values(catalog.get(c.name, {}), c.action) for c in decisions]
-    params = [values[row] for row in range(SAMPLE_ROWS) for values in inputs]
+    # If a fabricated value cannot be cast to its column type (a number too wide
+    # for numeric(4,2), say), fall back to examples for text columns only.
+    text_only = [
+        values if catalog.get(c.name, {}).get("udt_name") in _TEXT_TYPES else (None,) * SAMPLE_ROWS
+        for c, values in zip(decisions, inputs, strict=True)
+    ]
     response = PolicySamples(
         policy_id=policy.id, status="UNAVAILABLE", columns=_sample_columns(decisions)
     )
+    rows = None
     try:
         query = compile_sample_query(decisions, SAMPLE_ROWS)
         with deployer_session(connection) as target, target.transaction():
             target.execute("SET TRANSACTION READ ONLY")
             target.execute(f"SET LOCAL statement_timeout = {_PREVIEW_TIMEOUT_MS}")
-            target.execute(f"SET LOCAL ROLE {quote_ident(VIEW_OWNER_ROLE)}")
-            rows = target.execute(query, params, prepare=False).fetchall()
+            for attempt in (inputs, text_only):
+                params = [values[row] for row in range(SAMPLE_ROWS) for values in attempt]
+                try:
+                    # A savepoint, so a failed cast leaves the session usable.
+                    with target.transaction():
+                        rows = target.execute(query, params, prepare=False).fetchall()
+                    break
+                except psycopg.DataError:
+                    continue
     except (CompileError, DiscoveryError, psycopg.Error):
-        # The preview is a convenience. A missing deployer, an unreachable target,
-        # or a type the fabricated value cannot be cast to leaves it unavailable.
+        # The preview is a convenience: a missing deployer or an unreachable
+        # target leaves it unavailable and the compiled plan still works.
+        return response
+    if rows is None:
         return response
     width = len(decisions)
     response.status = "OK"
@@ -181,12 +201,20 @@ def illustrative_samples(db: Session, policy_id: UUID) -> PolicySamples:
 
 
 def _latest_completed_policy(db: Session, policy: MaskingPolicy) -> UUID | None:
-    """The policy whose deployment most recently replaced this table's view."""
+    """The policy whose deployment most recently replaced this table's view.
+
+    A view belongs to a table in a target database, not to a connection record,
+    so deployments made through any connection to the same database count.
+    """
+    connection = db.get(DatabaseConnection, policy.connection_id)
     return db.scalar(
         select(PolicyDeployment.policy_id)
         .join(MaskingPolicy, MaskingPolicy.id == PolicyDeployment.policy_id)
+        .join(DatabaseConnection, DatabaseConnection.id == MaskingPolicy.connection_id)
         .where(
-            MaskingPolicy.connection_id == policy.connection_id,
+            DatabaseConnection.host == connection.host,
+            DatabaseConnection.port == connection.port,
+            DatabaseConnection.database_name == connection.database_name,
             MaskingPolicy.schema_name == policy.schema_name,
             MaskingPolicy.table_name == policy.table_name,
             PolicyDeployment.status == "COMPLETED",

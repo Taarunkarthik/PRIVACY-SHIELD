@@ -67,6 +67,7 @@ function BarList({ label, unit, rows }: { label: string; unit: string; rows: Arr
 export function Dashboard() {
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [insights, setInsights] = useState<DashboardInsights | null>(null);
+  const [insightsFailed, setInsightsFailed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [revision, setRevision] = useState(0);
@@ -83,8 +84,8 @@ export function Dashboard() {
         // The breakdowns are requested only after the totals have loaded, and a
         // failure leaves the totals on screen with the breakdown panels empty.
         return api<DashboardInsights>('/dashboard/insights', { signal: controller.signal })
-          .then((value) => { if (!controller.signal.aborted) setInsights(value); })
-          .catch(() => { if (!controller.signal.aborted) setInsights(null); });
+          .then((value) => { if (!controller.signal.aborted) { setInsights(value); setInsightsFailed(false); } })
+          .catch(() => { if (!controller.signal.aborted) { setInsights(null); setInsightsFailed(true); } });
       })
       .catch((reason: unknown) => {
         if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'Unable to load workspace totals.');
@@ -99,6 +100,9 @@ export function Dashboard() {
   const coveragePercent = sensitive ? Math.round((covered / sensitive) * 100) : 0;
   const policyTotal = insights?.policy_status.reduce((total, item) => total + item.policies, 0) ?? 0;
   const refresh = () => setRevision((value) => value + 1);
+  // Shown in a breakdown panel while its numbers are loading or could not be
+  // loaded, so an empty panel is never mistaken for "nothing found".
+  const breakdownPending = !insights && <p className="chart-note quiet" role="status">{insightsFailed ? 'This breakdown could not be loaded. Refresh to try again.' : 'Loading the breakdown…'}</p>;
 
   return <div className="page-content dashboard">
     <div className="page-heading">
@@ -129,16 +133,17 @@ export function Dashboard() {
         {loading && !summary ? <div className="chart-empty" role="status"><div className="loading-ring" /><p>Loading your workspace…</p></div>
           : !summary ? <div className="chart-empty"><Database size={36} strokeWidth={1.2} /><h3>Workspace totals unavailable</h3><p>Refresh to try loading them again.</p></div>
           : !hasRecords ? <div className="chart-empty"><div className="empty-database-art" aria-hidden="true"><Database size={36} strokeWidth={1.3} /><span className="art-dot a" /><span className="art-dot b" /><span className="art-line" /></div><h3>Your data landscape starts here</h3><p>No databases have been registered yet.<br />Add a connection to discover its tables and relationships.</p><Link to="/connections" className="text-link">Explore connections <ArrowRight size={15} /></Link></div>
-          : insights && insights.categories.length ? <BarList label="Sensitive columns by category" unit="columns" rows={insights.categories.map((item) => ({ key: item.category, name: classificationCategory(item.category), value: item.columns }))} />
+          : !insights ? <div className="chart-empty">{breakdownPending}</div>
+          : insights.categories.length ? <BarList label="Sensitive columns by category" unit="columns" rows={insights.categories.map((item) => ({ key: item.category, name: classificationCategory(item.category), value: item.columns }))} />
           : <div className="chart-empty"><ScanLine size={36} strokeWidth={1.2} /><h3>No scan findings yet</h3><p>Run a scan to see which kinds of personal data your tables hold.</p><Link to="/scans" className="text-link">Go to scans <ArrowRight size={15} /></Link></div>}
         <div className="inventory-footer"><LockKeyhole size={14} /><p>Counts come from bounded samples. Source records stay in your database.</p></div>
       </section>
 
       <section className="panel review-panel" aria-label="Risk and protection">
         <div className="panel-heading"><div><h2>Risk and protection</h2><p>How sensitive the findings are, and how many are masked</p></div><ShieldCheck size={20} className="muted" /></div>
-        {insights && sensitive > 0 ? <>
+        {!insights ? breakdownPending : sensitive > 0 ? <>
           <BarList label="Sensitive columns by risk level" unit="columns" rows={insights.risks.map((item) => ({ key: item.risk, name: riskLabels[item.risk as Risk], value: item.columns }))} />
-          <p className="chart-note">{insights.risks_from_ai === 0 ? 'Risk level is assigned from the detected category.' : `Risk level comes from AI classification for ${insights.risks_from_ai} of ${sensitive} columns, and from the detected category for the rest.`}</p>
+          <p className="chart-note">A column takes the highest risk level among the categories detected in it.{insights.risks_from_ai > 0 && ` An AI classification was also weighed for ${insights.risks_from_ai} of ${sensitive} columns and can only raise the level.`}</p>
           <div className="coverage">
             <div className="coverage-figure"><strong>{covered.toLocaleString()} of {sensitive.toLocaleString()}</strong><span>sensitive columns are masked by a deployed policy</span></div>
             <div className="coverage-track" role="meter" aria-label="Sensitive columns masked by a deployed policy" aria-valuemin={0} aria-valuemax={sensitive} aria-valuenow={covered} aria-valuetext={`${covered} of ${sensitive} columns, ${coveragePercent}%`}><span style={{ width: `${coveragePercent}%` }} /></div>
@@ -162,7 +167,7 @@ export function Dashboard() {
 
       <section className="panel review-panel" aria-label="Recent activity">
         <div className="panel-heading"><div><h2>Recent activity</h2><p>Latest entries in the audit trail</p></div><Sparkles size={20} className="muted" /></div>
-        {insights && insights.recent_activity.length
+        {!insights ? breakdownPending : insights.recent_activity.length
           ? <ol className="event-list">{insights.recent_activity.map((event, index) => (
             <li key={`${event.created_at}-${index}`}><span className="event-dot" aria-hidden="true" /><span>{eventLabel(event.event_type)}</span><time dateTime={event.created_at}>{timeAgo(event.created_at)}</time></li>
           ))}</ol>

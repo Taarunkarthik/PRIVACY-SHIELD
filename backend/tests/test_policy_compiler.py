@@ -262,3 +262,23 @@ def test_sample_values_are_fabricated_from_type_name_and_action(column, action, 
     values = sample_values(column, action)
     assert len(values) == SAMPLE_ROWS
     assert values[0] == first
+
+
+def test_sample_query_never_uses_the_pseudonym_key():
+    columns = [
+        ColumnDecision(
+            name="email",
+            data_type="text",
+            action="PSEUDONYMIZE",
+            pseudonym_domain="demo",
+            source_column="email",
+        )
+    ]
+    # The deployed view uses the keyed HMAC...
+    plan = compile_plan(source_schema="public", source_table="t", columns=columns)
+    assert "extensions.hmac" in plan.sql and "pseudonym_keys" in plan.sql
+    # ...but a preview over known example inputs must not hand out real tokens.
+    query = compile_sample_query(columns, 1)
+    assert "hmac" not in query and "pseudonym_keys" not in query
+    assert "encode(sha256(convert_to(\"email\"::text, 'UTF8')), 'hex')" in query
+    assert query.count(" FROM ") == 1

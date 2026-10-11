@@ -163,8 +163,15 @@ describe('masking policy workflow', () => {
     await visitor.selectOptions(await within(dialog).findByLabelText('Table'), 'enterprise.customers');
     expect(await within(dialog).findByText('Email address in 50 of 50 sampled rows')).toBeInTheDocument();
     expect(within(dialog).getByText('Not scanned yet')).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Apply 2 suggestions' })).toBeInTheDocument();
 
-    await visitor.click(within(dialog).getByRole('button', { name: 'Apply 2 suggestions' }));
+    // A choice made by hand survives applying the suggestions.
+    await visitor.selectOptions(within(dialog).getByLabelText('Action for id'), 'REDACT');
+    await visitor.click(within(dialog).getByRole('button', { name: 'Apply 1 suggestion' }));
+    expect(within(dialog).getByLabelText('Action for id')).toHaveValue('REDACT');
+    expect(within(dialog).queryByRole('button', { name: /Apply/ })).not.toBeInTheDocument();
+    await visitor.selectOptions(within(dialog).getByLabelText('Action for id'), '');
+    await visitor.click(within(dialog).getByRole('button', { name: 'Apply 1 suggestion' }));
     expect(within(dialog).getByLabelText('Action for email')).toHaveValue('MASK_EMAIL');
     expect(within(dialog).getByLabelText('Action for id')).toHaveValue('KEEP');
     // A column without evidence gets no rule, so it stays NULL unless chosen.

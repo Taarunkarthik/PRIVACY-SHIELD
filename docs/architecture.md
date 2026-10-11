@@ -37,7 +37,7 @@ The one-shot `migrate` service applies control-plane migrations. PostgreSQL entr
 
 ## Trust boundaries
 
-- The browser receives session identity, sanitized metadata, and summaries. It never receives stored database passwords or raw source samples.
+- The browser receives session identity, sanitized metadata, and summaries. It never receives stored database passwords, and scanning, classification, suggestions, and the policy preview never send it source values. One endpoint is the deliberate exception: an administrator can read up to five rows through an already deployed masked view ([protected output](masking.md#protected-output)). That returns only what the approved policy exposes to the reader role, so a column the policy keeps appears as stored. Each call is audited.
 - API and worker use the `ps_app` control-plane runtime role. Migration ownership belongs to `ps_migrator`; runtime application credentials cannot alter the schema or rewrite audit history.
 - The target `ps_scanner` role can inspect authorized tables and read bounded samples. Its database grants prohibit inserts, updates, deletes, and DDL.
 - The target `ps_deployer` role operates only within provisioned privacy infrastructure and uses explicitly granted privileges. It is not a database superuser.

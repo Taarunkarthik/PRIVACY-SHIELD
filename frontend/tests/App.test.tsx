@@ -172,11 +172,27 @@ describe('dashboard and navigation', () => {
     expect(risks).toHaveTextContent('Low0');
     expect(screen.getByText('6 of 9')).toBeInTheDocument();
     expect(screen.getByRole('meter', { name: 'Sensitive columns masked by a deployed policy' })).toHaveAttribute('aria-valuenow', '6');
-    expect(screen.getByText('Risk level is assigned from the detected category.')).toBeInTheDocument();
+    expect(screen.getByText('A column takes the highest risk level among the categories detected in it.')).toBeInTheDocument();
     expect(screen.getByText('Policy approved')).toBeInTheDocument();
     // Every step of the workflow is delivered; none is labelled as planned.
     expect(screen.getAllByText(/Available now/)).toHaveLength(3);
     expect(screen.queryByText(/Planned capability/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Masking policies are next/)).not.toBeInTheDocument();
+  });
+
+  it('says so when the breakdowns fail to load instead of showing them as empty', async () => {
+    const fetchMock = mockApi(true);
+    const populated = { databases: 1, tables: 4, sensitive_columns: 9, pending_approvals: 0, deployed_policies: 1, scan_jobs: 2 };
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === '/api/v1/auth/me') return json(user);
+      if (path === '/api/v1/dashboard/summary') return json(populated);
+      return json({}, 500);
+    });
+    render(<App />);
+    expect(await screen.findAllByText('This breakdown could not be loaded. Refresh to try again.')).toHaveLength(3);
+    // The totals are still shown, and nothing claims there are no findings.
+    expect(screen.getByText('9')).toBeInTheDocument();
+    expect(screen.queryByText('No scan findings yet')).not.toBeInTheDocument();
   });
 });
