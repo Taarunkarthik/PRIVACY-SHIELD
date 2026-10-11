@@ -73,10 +73,15 @@ def login(
     verify_origin(request)
     login_throttle.check(request.client.host if request.client else "unknown")
     user = db.scalar(select(User).where(User.email == str(payload.email)))
-    valid_password = verify_password(
-        payload.password.get_secret_value(),
-        user.password_hash if user is not None else None,
-    )
+    verified_hash = user.password_hash if user is not None else None
+    valid_password = verify_password(payload.password.get_secret_value(), verified_hash)
+    if valid_password and user is not None:
+        # Checking a password takes a noticeable time. An administrator may have
+        # deactivated this account or given it a new password meanwhile, so the
+        # row is read again and locked until this sign-in commits: a change that
+        # arrives now waits, and then also revokes the session created below.
+        db.refresh(user, with_for_update={"key_share": True})
+        valid_password = user.password_hash == verified_hash
     if not valid_password or user is None or not user.is_active:
         record_event(db, actor_id=None, event_type="AUTH_LOGIN_FAILED", subject_type="session")
         db.commit()

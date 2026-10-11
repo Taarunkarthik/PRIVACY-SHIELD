@@ -9,7 +9,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.api import auth, classifications, connections, dashboard, health, policies, scans
+from app.api import (
+    auth,
+    classifications,
+    connections,
+    dashboard,
+    health,
+    policies,
+    scans,
+    users,
+)
 from app.api import settings as settings_routes
 from app.core.config import get_settings
 
@@ -76,6 +85,7 @@ def create_app() -> FastAPI:
         classifications.router,
         policies.router,
         settings_routes.router,
+        users.router,
     ):
         app.include_router(router, prefix="/api/v1")
 

@@ -37,7 +37,7 @@ These follow from how Vercel runs containers:
   idle, which is shorter than a scan.
 - **AI classification is not available** (no Ollama server), as on Render.
 - **The database is on the public internet**, protected by TLS and passwords.
-  The scanned "enterprise_demo" data is synthetic.
+  The scanned demo data is synthetic.
 
 ## Steps
 
@@ -89,8 +89,10 @@ default branch, `dev/privacyshield`.
    ignored or used in place of the ones derived from `APP_SECRET`.
 4. **Deploy.** *Deployments* → the latest one → *Redeploy*. The build takes
    several minutes the first time.
-5. **Open the production address** (`<project>.vercel.app`) and sign in. A
-   connection called **Synthetic enterprise** is already there.
+5. **Open the production address** (`<project>.vercel.app`) and sign in. Three
+   connections are already there, each a separate synthetic database:
+   **Synthetic enterprise**, **Synthetic hospital** and **Synthetic
+   university**.
 
 ## Reading the logs
 
@@ -98,9 +100,13 @@ Open the deployment → **Logs**. A good start prints, in order:
 
 ```text
 INFO Bootstrap: creating database enterprise_demo
+INFO Bootstrap: demo database hospital_demo is ready
+INFO Bootstrap: demo database university_demo is ready
 INFO Bootstrap complete.
 INFO Administrator created
 INFO Demo connection registered: enterprise_demo on ...
+INFO Demo connection registered: hospital_demo on ...
+INFO Demo connection registered: university_demo on ...
 INFO Serving frontend from /app/static, jobs run in-process, listening on 0.0.0.0:10000
 ```
 

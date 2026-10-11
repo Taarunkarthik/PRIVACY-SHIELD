@@ -4,6 +4,7 @@ import { Link, useSearchParams } from 'react-router';
 import { AlertTriangle, ArrowRight, ChevronLeft, ChevronRight, Clock3, Database, Play, RefreshCw, ScanLine } from 'lucide-react';
 import { api, ApiError } from '../api/client';
 import { useAuth } from '../api/auth';
+import { defaultConnectionId } from '../api/connections';
 import type { Connection, ConnectionPage, SchemaSnapshot } from '../api/connections';
 import { activeScan, activeScanPage, failureMessage, scanError, statusLabel } from '../api/scans';
 import type { ScanJob, ScanPage } from '../api/scans';
@@ -25,7 +26,7 @@ export function Scans() {
   const [launchError, setLaunchError] = useState('');
   const [revision, setRevision] = useState(0);
   const [historyPage, setHistoryPage] = useState(1);
-  const connectionId = params.get('connection') || connections.find((item) => item.is_active)?.id || connections[0]?.id || '';
+  const connectionId = params.get('connection') || defaultConnectionId(connections);
   const connection = connections.find((item) => item.id === connectionId);
   const history = usePollingResource<ScanPage>(connection ? `/scans?connection_id=${encodeURIComponent(connectionId)}&page=${historyPage}&page_size=10` : null, revision, activeScanPage);
   const selectedId = params.get('job') || history.data?.items[0]?.id || '';

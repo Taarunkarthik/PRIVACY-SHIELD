@@ -10,10 +10,19 @@ commit `6750112`:
   ([classification.md](classification.md));
 - a single-container deployment that needs one PostgreSQL instance and no Redis
   or worker ([deploy-render.md](deploy-render.md));
-- a redesigned interface.
+- a redesigned interface;
+- a Users page where an administrator creates accounts, sets roles,
+  deactivates accounts and resets passwords ([accounts.md](accounts.md));
+- two more synthetic databases, a hospital and a university, that a hosted
+  deployment creates and connects beside the enterprise one. With more than
+  one database connected, the Masking Policies page has a database picker, and
+  pages open on the database that was connected first.
 
-The five were built separately, merged, and then tested and reviewed together.
-This record says what was run on the merged result, on what, and what was not.
+The first five were built separately, merged, and then tested and reviewed
+together. The Users page and the two databases were added afterwards and went
+through the same checks, except that the two databases were not independently
+reviewed. This record says what was run on the result, on what, and what was
+not.
 
 ## Environment
 
@@ -36,14 +45,14 @@ This record says what was run on the merged result, on what, and what was not.
 | Check | Result |
 | --- | --- |
 | `ruff check .` | Passed |
-| Backend unit tests (`pytest -m "not integration"`) | 496 passed |
+| Backend unit tests (`pytest -m "not integration"`) | 505 passed |
 | `alembic upgrade head` from an empty database, then `alembic check` | Passed; one head (`0007_policy_audiences`), no drift |
 | Downgrade to `0005_format_masks`, upgrade to head, `alembic check` | Passed |
-| Integration tests against real PostgreSQL, Redis and a separate worker | 133 passed. 132 of them were run twice, on fresh databases and again on the used ones; the last, for the Vercel start wrapper, was added afterwards and run with the full suite once |
+| Integration tests against real PostgreSQL, Redis and a separate worker | 150 passed, run twice: on fresh databases and again on the used ones. Seventeen of them cover account management, including two administrators demoting each other at the same moment |
 | Frontend `tsc -b` | Passed |
-| Frontend component tests (`vitest run`) | 82 passed |
+| Frontend component tests (`vitest run`) | 94 passed |
 | Frontend production build | Passed |
-| Browser specs `auth`, `classifications`, `discovery`, `policies`, `scans`, `settings` | 6 passed, Chromium against the Vite dev server and the real API and worker. The classification spec ran against the HTTP model double |
+| Browser specs `auth`, `classifications`, `discovery`, `policies`, `scans`, `settings`, `users` | 7 passed, Chromium against the Vite dev server and the real API and worker. The classification spec ran against the HTTP model double. The `users` spec adds an analyst, signs in as them, and deactivates them. A further pass by script, with the hospital and university databases added to the local server, switched database on the Masking Policies page, created, approved and deployed a policy on `hospital.patients` and read its protected output |
 | Manual pass in Chromium at 1440x900 and 1280x720 | Sign-in, overview, a three-audience policy (rules, preview and protected output per audience), the new-policy dialog, log integrity check, classification and scans. No console errors other than the expected `401` before sign-in |
 
 Before this work the suite was 218 unit, 99 integration and 54 component tests.
@@ -51,7 +60,12 @@ Before this work the suite was 218 unit, 99 integration and 54 component tests.
 The integration suite includes the hosted layout end to end: the start script
 bootstraps an empty server as a non-superuser, serves the frontend and API from
 one process, runs a scan, a classification and a deployment with no Redis, and
-recovers a scan from a process that was killed mid-job.
+recovers a scan from a process that was killed mid-job. It then discovers and
+scans the hospital and university databases, checks that the planted email
+addresses, phone numbers, Aadhaar-shaped and PAN-shaped numbers, card numbers
+and bank account numbers are found, deploys a masking policy in each, and reads
+the result as `ps_reader`: masked values through the view, and no access to
+the table.
 
 A three-audience policy on `enterprise.customers` was deployed through the API
 and read back through each role's view: `ps_reader`, `ps_support` and
@@ -139,6 +153,10 @@ the same check was repeated here on 1.7 million values after the last change.
   a completed scan, a deployed policy and an intact audit chain. That is one
   short session on a beta platform feature;
   [deploy-vercel.md](deploy-vercel.md) lists what it does not show.
+- **The hospital and university databases have not been created on Vercel or
+  Render.** They were created by the same bootstrap on the local stand-in
+  server only. Each is optional at startup: if one cannot be created the
+  failure is logged and the site starts without it.
 - **Docker Compose** was not started with this build. The Compose images are
   unchanged apart from the code they contain.
 
@@ -156,5 +174,15 @@ the same check was repeated here on 1.7 million values after the last change.
   than ten in five minutes makes sign-in answer "Try again later" for everyone
   until the window passes.
 - Dashboard coverage counts a column as masked by what general readers see.
+- The AI Classification page lists completed scans by time and does not say
+  which database each scan belongs to. With several databases connected, open
+  a scan from Scan Results to be sure which one is being classified.
+- After **Deploy** the Masking Policies page does not update by itself;
+  **Refresh** shows the new status.
+- The hospital and university databases exist on hosted deployments only. The
+  local Compose stack has the enterprise database.
+- In the hospital data the name detector also marks some columns that hold no
+  names (`blood_group` was reported as a person's name in one run). The
+  findings need the same human review as any others.
 - Shape counts are aggregates. In a text column whose values differ only in
   form (`Yes` and `No`), the stored counts are that column's distribution.

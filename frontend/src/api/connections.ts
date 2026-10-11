@@ -35,6 +35,16 @@ export type SchemaTable = {
 export type SchemaSnapshot = { snapshot_id: string; discovered_at: string; fingerprint: string; catalog: { schemas: string[]; tables: SchemaTable[] } };
 export type ConnectionCheck = { status: 'ok'; schemas: string[]; table_count: number };
 
+/**
+ * The connection a page opens on when its address names none: the active one
+ * that has been registered longest, so a workspace keeps opening on the database
+ * its existing scans and policies belong to when another database is added.
+ */
+export function defaultConnectionId(connections: Connection[]): string {
+  const oldestFirst = [...connections].sort((a, b) => (Date.parse(a.created_at) - Date.parse(b.created_at)) || 0);
+  return (oldestFirst.find((item) => item.is_active) ?? oldestFirst[0])?.id ?? '';
+}
+
 export function discoveryScope(value: string): { schemas?: string[] } {
   const names = [...new Set(value.split(',').map((name) => name.trim()).filter(Boolean))];
   return names.length ? { schemas: names } : {};

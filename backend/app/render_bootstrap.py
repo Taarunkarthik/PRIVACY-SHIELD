@@ -42,13 +42,15 @@ import psycopg
 from cryptography.fernet import Fernet
 from psycopg import sql
 
+from app.demo_datasets import DEMO_DATASETS, ENTERPRISE, EXTRA_DATASETS, DemoDataset
+
 logger = logging.getLogger("privacyshield.bootstrap")
 
 # Where the values for the server process are written. The start scripts source
 # this file; PS_RUNTIME_ENV_FILE moves it (used by tests that run side by side).
 RUNTIME_ENV_FILE = os.environ.get("PS_RUNTIME_ENV_FILE") or "/tmp/ps_runtime_env"
 LOCK_KEY = 0x9A17C0DE
-TARGET_DATABASE = "enterprise_demo"
+TARGET_DATABASE = ENTERPRISE.database
 SSL_MODES = ("disable", "require", "verify-ca", "verify-full")
 MIN_APP_SECRET_LENGTH = 32
 # One label per derived secret. Changing a label changes that secret on every
@@ -380,43 +382,35 @@ def provision_control(admin_url: str, app_password: str, migrator_password: str)
     return app_url, _runtime_url(admin_url, admin["user"], admin["password"])
 
 
-TARGET_DEMO_ROWS = """
-INSERT INTO enterprise.customers (full_name,email,phone,pan,aadhaar,address,profile)
-SELECT 'Synthetic Customer ' || n,
-       'customer' || n || '@example.com',
-       '+91 90000 ' || lpad(n::text, 5, '0'),
-       'ABCDE' || lpad(n::text,4,'0') || 'F',
-       '2345 6789 ' || lpad(n::text,4,'0'),
-       n || ' Example Street, Demo City',
-       jsonb_build_object('contact', jsonb_build_object('email','alternate' || n || '@example.org'),
-                          'preferences', jsonb_build_object('newsletter', n % 2 = 0))
-FROM generate_series(1,100) AS n;
-INSERT INTO enterprise.accounts(customer_id,account_number,balance)
-SELECT id, 'DEMO' || lpad(id::text,12,'0'), id * 123.45 FROM enterprise.customers;
-INSERT INTO enterprise.transactions(account_id,sequence_number,amount,note)
-SELECT id, 1, 25.00, 'Synthetic payment reference' FROM enterprise.accounts;
-INSERT INTO enterprise.support_records(customer_id,related_account_id,related_sequence_number,body)
-SELECT id,id,1,'Please contact customer' || id || '@example.com about my demo account.'
-FROM enterprise.customers;
-"""
-
-
 def provision_target(
-    admin_url: str, scanner_password: str, deployer_password: str, reader_password: str
+    admin_url: str,
+    scanner_password: str,
+    deployer_password: str,
+    reader_password: str,
+    dataset: DemoDataset = ENTERPRISE,
 ) -> None:
-    """Create the target roles, schemas, pgcrypto, and synthetic fixtures."""
+    """Create the target roles, schemas, pgcrypto, and one synthetic dataset.
+
+    ``admin_url`` names the dataset's own database. The database and schema
+    names come from ``app.demo_datasets``; they are constants, never request
+    input, so they are composed into statements as quoted identifiers.
+    """
+    database = sql.Identifier(dataset.database)
+    schema = sql.Identifier(dataset.schema)
     with _admin(admin_url) as connection:
         _ensure_role(connection, "ps_scanner", scanner_password, login=True)
         _ensure_role(connection, "ps_view_owner", "unused-nologin", login=False)
         _ensure_role(connection, "ps_deployer", deployer_password, login=True, noinherit=True)
         _ensure_role(connection, "ps_reader", reader_password, login=True)
         connection.execute("GRANT ps_view_owner TO ps_deployer")
-        connection.execute("REVOKE ALL ON DATABASE enterprise_demo FROM PUBLIC")
+        connection.execute(sql.SQL("REVOKE ALL ON DATABASE {} FROM PUBLIC").format(database))
         connection.execute(
-            "GRANT CONNECT ON DATABASE enterprise_demo TO ps_scanner, ps_deployer, ps_reader"
+            sql.SQL("GRANT CONNECT ON DATABASE {} TO ps_scanner, ps_deployer, ps_reader").format(
+                database
+            )
         )
         connection.execute("REVOKE ALL ON SCHEMA public FROM PUBLIC")
-        connection.execute("CREATE SCHEMA IF NOT EXISTS enterprise")
+        connection.execute(sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(schema))
         connection.execute(
             "CREATE SCHEMA IF NOT EXISTS privacyshield_masked AUTHORIZATION ps_view_owner"
         )
@@ -426,7 +420,9 @@ def provision_target(
         connection.execute("CREATE SCHEMA IF NOT EXISTS extensions")
         connection.execute("CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions")
         connection.execute("GRANT USAGE ON SCHEMA extensions TO ps_view_owner, ps_reader")
-        connection.execute("GRANT USAGE ON SCHEMA enterprise TO ps_scanner, ps_view_owner")
+        connection.execute(
+            sql.SQL("GRANT USAGE ON SCHEMA {} TO ps_scanner, ps_view_owner").format(schema)
+        )
         connection.execute("GRANT USAGE ON SCHEMA privacyshield_masked TO ps_reader")
         # Masking audiences (docs/masking-audiences.md): passwordless group roles
         # an operator grants to their own users. Created once, never altered.
@@ -442,52 +438,19 @@ def provision_target(
             connection.execute(f"ALTER ROLE {role} SET statement_timeout = '{timeout}'")
         connection.execute("ALTER ROLE ps_scanner SET default_transaction_read_only = on")
 
-        if connection.execute("SELECT to_regclass('enterprise.customers')").fetchone()[0] is None:
-            logger.info("Bootstrap: creating the synthetic demo tables")
-            connection.execute(
-                "CREATE TABLE enterprise.customers ("
-                "id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,"
-                "full_name text NOT NULL, email text NOT NULL UNIQUE, phone text, pan text,"
-                "aadhaar text, address text, profile jsonb NOT NULL DEFAULT '{}'::jsonb,"
-                "created_at timestamptz NOT NULL DEFAULT now())"
-            )
-            connection.execute(
-                "CREATE TABLE enterprise.accounts ("
-                "id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,"
-                "customer_id bigint NOT NULL REFERENCES enterprise.customers(id),"
-                "account_number text NOT NULL UNIQUE,"
-                " balance numeric(14,2) NOT NULL CHECK (balance >= 0),"
-                "currency char(3) NOT NULL DEFAULT 'INR')"
-            )
-            connection.execute(
-                "CREATE TABLE enterprise.transactions ("
-                "account_id bigint NOT NULL REFERENCES enterprise.accounts(id),"
-                "sequence_number integer NOT NULL CHECK (sequence_number > 0),"
-                "amount numeric(14,2) NOT NULL, note text,"
-                "PRIMARY KEY (account_id, sequence_number))"
-            )
-            connection.execute(
-                "CREATE TABLE enterprise.support_records ("
-                "id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,"
-                "customer_id bigint NOT NULL REFERENCES enterprise.customers(id),"
-                "related_account_id bigint, related_sequence_number integer, body text NOT NULL,"
-                "FOREIGN KEY (related_account_id, related_sequence_number)"
-                " REFERENCES enterprise.transactions(account_id, sequence_number))"
-            )
-            connection.execute(
-                "CREATE INDEX ix_accounts_customer_id ON enterprise.accounts(customer_id)"
-            )
-            connection.execute(
-                "CREATE INDEX ix_support_customer_id ON enterprise.support_records(customer_id)"
-            )
-            connection.execute(
-                "CREATE INDEX ix_support_transaction ON enterprise.support_records"
-                "(related_account_id, related_sequence_number)"
-            )
-            connection.execute(TARGET_DEMO_ROWS)
+        probe = f"{dataset.schema}.{dataset.probe}"
+        if connection.execute("SELECT to_regclass(%s)", (probe,)).fetchone()[0] is None:
+            logger.info("Bootstrap: creating the synthetic %s tables", dataset.schema)
+            # One transaction: a dataset is either complete or absent, so a start
+            # that is interrupted here is simply repeated by the next one.
+            with connection.transaction():
+                for statement in dataset.statements:
+                    connection.execute(statement)
 
         connection.execute(
-            "GRANT SELECT ON ALL TABLES IN SCHEMA enterprise TO ps_scanner, ps_view_owner"
+            sql.SQL("GRANT SELECT ON ALL TABLES IN SCHEMA {} TO ps_scanner, ps_view_owner").format(
+                schema
+            )
         )
         connection.execute(
             "CREATE TABLE IF NOT EXISTS privacyshield_private.pseudonym_keys ("
@@ -511,6 +474,38 @@ def provision_target(
         connection.execute(
             "ALTER TABLE privacyshield_private.deployment_receipts OWNER TO ps_view_owner"
         )
+
+
+def provision_extra_datasets(
+    target_admin: str, scanner_password: str, deployer_password: str, reader_password: str
+) -> list[str]:
+    """Create the further demo databases beside the first. Returns those that are ready.
+
+    Each is optional: a failure is logged and the others, and the application,
+    carry on without it.
+    """
+    ready = []
+    for dataset in EXTRA_DATASETS:
+        try:
+            with _admin(target_admin) as connection:
+                ensure_database(connection, dataset.database)
+            provision_target(
+                _with_database(target_admin, dataset.database),
+                scanner_password,
+                deployer_password,
+                reader_password,
+                dataset,
+            )
+        except (psycopg.Error, BootstrapError) as exc:
+            logger.warning(
+                "Demo database %s was not provisioned (%s); the others are unaffected.",
+                dataset.database,
+                exc if isinstance(exc, BootstrapError) else describe(exc),
+            )
+            continue
+        ready.append(dataset.database)
+        logger.info("Bootstrap: demo database %s is ready", dataset.database)
+    return ready
 
 
 def apply_migrations(migration_url: str, app_url: str) -> None:
@@ -544,6 +539,7 @@ def write_runtime_env(
     encryption_key: str,
     *,
     target_ready: bool,
+    extra_databases: list[str] | None = None,
 ) -> None:
     """Write the values the start script exports before it starts the server.
 
@@ -561,6 +557,8 @@ def write_runtime_env(
         "PS_TARGET_DATABASE": target["dbname"],
         "PS_TARGET_SSLMODE": _sslmode(),
         "PS_TARGET_READY": "1" if target_ready else "0",
+        # The further demo databases that were provisioned, on the same server.
+        "PS_DEMO_DATABASES": ",".join(extra_databases or []),
     }
     descriptor = os.open(RUNTIME_ENV_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
@@ -579,9 +577,9 @@ def main() -> int:
     target_admin = os.environ.get("TARGET_ADMIN_URL") or None
     single_instance = target_admin is None
     if single_instance:
-        if control["dbname"] == TARGET_DATABASE:
+        if control["dbname"] in {dataset.database for dataset in DEMO_DATASETS}:
             raise BootstrapError(
-                f"The database in CONTROL_ADMIN_URL is named {TARGET_DATABASE}, the name"
+                f"The database in CONTROL_ADMIN_URL is named {control['dbname']}, a name"
                 " reserved for the synthetic demo data. Create the database under a"
                 " different name."
             )
@@ -604,6 +602,7 @@ def main() -> int:
                 control_admin, secrets["APP_DATABASE_PASSWORD"], secrets["MIGRATOR_PASSWORD"]
             )
             target_ready = False
+            extra_databases: list[str] = []
             try:
                 if single_instance:
                     ensure_database(lock_connection, TARGET_DATABASE)
@@ -619,6 +618,12 @@ def main() -> int:
                     target["dbname"],
                     target["host"],
                     target["port"],
+                )
+                extra_databases = provision_extra_datasets(
+                    target_admin,
+                    secrets["SCANNER_PASSWORD"],
+                    secrets["DEPLOYER_PASSWORD"],
+                    secrets["READER_PASSWORD"],
                 )
             except (psycopg.Error, BootstrapError) as exc:
                 # The target demo needs its own least-privilege roles; without
@@ -636,6 +641,7 @@ def main() -> int:
                 target,
                 secrets["CREDENTIAL_ENCRYPTION_KEY"],
                 target_ready=target_ready,
+                extra_databases=extra_databases,
             )
             logger.info("Bootstrap complete.")
         finally:

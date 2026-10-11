@@ -24,6 +24,11 @@ _argon2_slots = threading.BoundedSemaphore(2)
 def hash_password(password: str) -> str:
     if not 12 <= len(password) <= 128:
         raise ValueError("Passwords must contain 12 to 128 characters")
+    try:
+        password.encode("utf-8")
+    except UnicodeEncodeError:
+        # A lone surrogate, which no keyboard produces and Argon2 cannot hash.
+        raise ValueError("Passwords must be valid text") from None
     with _argon2_slots:
         return password_hasher.hash(password)
 
@@ -32,7 +37,7 @@ def verify_password(password: str, encoded: str | None) -> bool:
     try:
         with _argon2_slots:
             matched = password_hasher.verify(encoded or _dummy_hash, password)
-    except (VerifyMismatchError, VerificationError, InvalidHashError):
+    except (VerifyMismatchError, VerificationError, InvalidHashError, UnicodeEncodeError):
         return False
     return bool(encoded and matched)
 

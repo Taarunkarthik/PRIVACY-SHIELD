@@ -238,17 +238,24 @@ def classify(session: ApiSession, scan_id: str, *, count: int = 3, timeout: floa
 
 
 def deploy_policy(
-    session: ApiSession, connection_id: str, snapshot_id: str, *, timeout: float = 90
+    session: ApiSession,
+    connection_id: str,
+    snapshot_id: str,
+    *,
+    schema_name: str = "enterprise",
+    table_name: str = "accounts",
+    rules: list[dict] | None = None,
+    timeout: float = 90,
 ) -> tuple[dict, dict, dict]:
     """Create, submit, approve and deploy. Returns (policy, deployment, preview)."""
     created = session.post(
         "/api/v1/policies",
         json={
             "connection_id": connection_id,
-            "schema_name": "enterprise",
-            "table_name": "accounts",
+            "schema_name": schema_name,
+            "table_name": table_name,
             "snapshot_id": snapshot_id,
-            "rules": ACCOUNT_RULES,
+            "rules": ACCOUNT_RULES if rules is None else rules,
         },
     )
     assert created.status_code == 201, created.text

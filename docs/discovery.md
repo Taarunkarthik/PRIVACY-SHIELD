@@ -25,7 +25,7 @@ All paths below use the `/api/v1` prefix and require an authenticated session. A
 
 Connection SSL choices are `disable`, `require`, `verify-ca`, and `verify-full`. The local demo's schema selection is `enterprise`. Existing inactive connections retain their historical metadata. Target failures must use sanitized errors without reflecting passwords, DSNs, or source values.
 
-Discovery defaults to accessible `enterprise` and `public` schemas when no list is supplied. Explicit lists must be nonempty and contain at most 20 source schemas; system and privacy-infrastructure schemas are rejected. The implementation limits a discovery to 500 tables, 10,000 columns, and 5,000 primary/foreign-key constraints, with a 10-second statement timeout and a read-only repeatable-read transaction. Exceeding the scope limits returns a clear error instead of silently truncating the snapshot. Fingerprints exclude volatile row estimates and object identifiers, while preserving the semantic schema structure.
+Discovery defaults to the accessible demo schemas (`enterprise`, `hospital`, `university`) and `public` when no list is supplied. Explicit lists must be nonempty and contain at most 20 source schemas; system and privacy-infrastructure schemas are rejected. The implementation limits a discovery to 500 tables, 10,000 columns, and 5,000 primary/foreign-key constraints, with a 10-second statement timeout and a read-only repeatable-read transaction. Exceeding the scope limits returns a clear error instead of silently truncating the snapshot. Fingerprints exclude volatile row estimates and object identifiers, while preserving the semantic schema structure.
 
 ## Demonstration and acceptance
 

@@ -28,6 +28,7 @@ from app.cli import create_admin
 from app.core.audit import record_event
 from app.core.database import session_factory
 from app.core.security import decrypt_credential, encrypt_credential
+from app.demo_datasets import dataset_for
 from app.models import DatabaseConnection, User
 from app.render_bootstrap import BootstrapError, resolve_secrets
 from app.schemas.connections import ConnectionCreate
@@ -56,9 +57,18 @@ def ensure_admin(email: str | None, password: str | None) -> bool:
     except EmailNotValidError:
         raise SetupError("ADMIN_EMAIL is not a valid email address.") from None
     with session_factory()() as db:
-        exists = db.scalar(select(User.id).where(User.email == normalized))
-    if exists:
+        existing = db.execute(
+            select(User.role, User.is_active).where(User.email == normalized)
+        ).first()
+    if existing:
         logger.info("Administrator already exists; its password was left unchanged")
+        if existing.role != "ADMIN" or not existing.is_active:
+            # Changed on the Users page since it was created. It is left as it is:
+            # startup must never hand back access an administrator took away.
+            logger.warning(
+                "The ADMIN_EMAIL account is no longer an active administrator;"
+                " it was not changed. Another administrator can restore it on the Users page."
+            )
         return False
     try:
         # The CLI's own function: validated email, 12 to 128 characters, Argon2,
@@ -105,12 +115,13 @@ def ensure_demo_connection(
     scanner_password: str,
     deployer_password: str,
     owner_email: str | None = None,
+    name: str = DEMO_CONNECTION_NAME,
+    schemas: list[str] | None = None,
 ) -> bool:
-    """Register the demo target if absent. True if it was created."""
+    """Register a demo target under ``name`` if absent. True if it was created."""
+    schemas = schemas or DEMO_SCHEMAS
     with session_factory()() as db:
-        existing = db.scalar(
-            select(DatabaseConnection).where(DatabaseConnection.name == DEMO_CONNECTION_NAME)
-        )
+        existing = db.scalar(select(DatabaseConnection).where(DatabaseConnection.name == name))
         if existing is not None:
             try:
                 decrypt_credential(existing.scanner_password_ciphertext)
@@ -142,7 +153,7 @@ def ensure_demo_connection(
             return False
         try:
             payload = ConnectionCreate(
-                name=DEMO_CONNECTION_NAME,
+                name=name,
                 host=host,
                 port=port,
                 database_name=database,
@@ -177,7 +188,7 @@ def ensure_demo_connection(
         db.commit()
         logger.info("Demo connection registered: %s on %s:%s", database, payload.host, port)
         try:
-            tables = len(discover_catalog(record, DEMO_SCHEMAS)["tables"])
+            tables = len(discover_catalog(record, schemas)["tables"])
             logger.info("Demo connection checked: the scanner role can see %d tables", tables)
         except DiscoveryError as exc:
             # Not fatal: the connection can be tested again from the Connections page.
@@ -207,6 +218,22 @@ def main() -> int:
             deployer_password=secrets["DEPLOYER_PASSWORD"],
             owner_email=email,
         )
+        # The further demo databases the bootstrap made on the same server.
+        for database in filter(None, (os.environ.get("PS_DEMO_DATABASES") or "").split(",")):
+            dataset = dataset_for(database)
+            if dataset is None:
+                continue
+            ensure_demo_connection(
+                host=os.environ["PS_TARGET_HOST"],
+                port=int(os.environ.get("PS_TARGET_PORT") or 5432),
+                database=dataset.database,
+                ssl_mode=os.environ.get("PS_TARGET_SSLMODE") or "require",
+                scanner_password=secrets["SCANNER_PASSWORD"],
+                deployer_password=secrets["DEPLOYER_PASSWORD"],
+                owner_email=email,
+                name=dataset.connection_name,
+                schemas=[dataset.schema],
+            )
     except (SetupError, BootstrapError) as exc:
         logger.error("Setup failed: %s", exc)
         return 1

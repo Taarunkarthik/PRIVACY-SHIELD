@@ -39,7 +39,7 @@ Bootstrap the administrator interactively after the API is healthy:
 docker compose exec api python -m app.cli create-admin --email admin@example.com
 ```
 
-Enter a strong unique password at the hidden prompt, then open [the local dashboard](http://localhost:8080). There is no committed default administrator password. Authentication uses server-side sessions and CSRF protection.
+Enter a strong unique password at the hidden prompt, then open [the local dashboard](http://localhost:8080). There is no committed default administrator password. Authentication uses server-side sessions and CSRF protection. Further accounts (analysts, auditors, other administrators) are added by an administrator on the Users page; see [accounts and roles](docs/accounts.md).
 
 **Hosted option:** the repository includes a Render Blueprint (`render.yaml`) for
 the free plan: one web service that serves the API, the frontend and the
@@ -50,6 +50,9 @@ which needs paid plans, is kept as `render.paid.yaml`. See
 (beta) from `Dockerfile.vercel` with a Neon database; see
 [Deploying on Vercel](docs/deploy-vercel.md). A deployment made on 11 October 2026
 is at [privacy-shield-gamma.vercel.app](https://privacy-shield-gamma.vercel.app).
+A hosted deployment starts with three synthetic databases already connected
+(an enterprise, a hospital and a university); the local Compose stack has the
+enterprise one.
 
 **Windows storage:** use Docker Desktop's supported storage controls to locate Linux disk images and named volumes on D: before the first build. Preserve existing Docker data. Do not move, delete, or unregister Docker/WSL distributions manually. See [operations and troubleshooting](docs/operations.md).
 
@@ -103,6 +106,7 @@ The backend is a FastAPI modular monolith shared by API and Celery processes. A 
 - [Connection and discovery contract](docs/discovery.md)
 - [Bounded PII scanning and demo](docs/scanning.md)
 - [Local AI classification and actual model checks](docs/classification.md)
+- [Accounts and roles: who may do what, and how accounts are made](docs/accounts.md)
 - [Masking policies, approval, and deployment](docs/masking.md)
 - [Masking audiences: one policy, a different view per database role](docs/masking-audiences.md)
 - [Audit hash chain: what it detects and what it cannot](docs/audit-chain.md)
