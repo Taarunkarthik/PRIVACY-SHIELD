@@ -31,17 +31,17 @@ envVarGroups:
 databases:
   - name: privacyshield-control
     databaseName: privacyshield
-    region: oregon
+    region: singapore
     plan: free
   - name: privacyshield-target
     databaseName: enterprise_demo
-    region: oregon
+    region: singapore
     plan: free
 
 services:
   - type: keyvalue
     name: privacyshield-redis
-    region: oregon
+    region: singapore
     plan: free
     maxmemoryPolicy: noeviction
     ipAllowList: [] # internal-only; no public access
@@ -49,7 +49,7 @@ services:
   - type: web
     name: privacyshield-api
     runtime: docker
-    region: oregon
+    region: singapore
     plan: 1c-2g
     branch: dev/privacyshield
     dockerfilePath: ./backend/Dockerfile
@@ -82,7 +82,7 @@ services:
   - type: worker
     name: privacyshield-worker
     runtime: docker
-    region: oregon
+    region: singapore
     plan: 1c-2g
     branch: dev/privacyshield
     dockerfilePath: ./backend/Dockerfile
@@ -108,7 +108,7 @@ services:
   - type: web
     name: privacyshield-web
     runtime: docker
-    region: oregon
+    region: singapore
     plan: free
     branch: dev/privacyshield
     dockerfilePath: ./frontend/Dockerfile
