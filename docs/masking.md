@@ -7,6 +7,13 @@ creates a PostgreSQL security-barrier view owned by a restricted role; the
 restricted reader sees only the approved projection, and source rows are never
 modified.
 
+This page describes a policy for one audience, the general reader (`ps_reader`),
+which is what every policy has. A policy can also carry rules for two more
+audiences, support staff and analysts, each reading a separately masked view
+through its own role. That model is described in
+[masking-audiences.md](masking-audiences.md); everything below applies to each
+audience's view.
+
 ## Protection actions
 
 Every exposed column receives exactly one action. Columns without a rule become

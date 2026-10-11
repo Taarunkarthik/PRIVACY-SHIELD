@@ -33,6 +33,23 @@
 .view-pending { min-height: 220px; }
 .policy-detail .policy-preview { margin-bottom: 0; }
 
+/* Audience switcher: which audience's view (or rule set) is on screen. */
+.audience-switch { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 14px 20px 0; }
+.audience-switch-label { margin-right: 4px; font-size: 13px; color: var(--text-3); }
+.audience-option { display: inline-flex; align-items: baseline; gap: 8px; min-height: 32px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--raised); color: var(--text-2); font-size: 13px; }
+.audience-option strong { font-weight: 600; }
+.audience-option small { font-family: var(--font-mono); font-size: 12px; color: var(--text-3); }
+.audience-option:hover { background: var(--raised-hover); color: var(--text); }
+.audience-option[aria-pressed="true"] { border-color: var(--mint-line); background: var(--mint-soft); color: var(--text); }
+.audience-option[aria-pressed="true"] small { color: var(--mint); }
+.rules-editor > .audience-switch { padding: 0 0 14px; }
+.rules-editor-note code { font-family: var(--font-mono); font-size: 12px; color: var(--text-2); }
+.suggestion-bar .button svg { flex-shrink: 0; }
+
+/* One policy, several audiences: a column per audience. */
+.policy-rules > .table-scroll { border: 1px solid var(--line); border-radius: 7px; }
+.audience-matrix td .pill + .masking-type { margin-top: 5px; }
+
 /* Before and after: amber while a value is exposed, mint once it is masked. */
 .masking-table td code.exposed-value { color: var(--amber); }
 .masking-table td code.masked-value { color: var(--mint); font-weight: 500; }
@@ -65,7 +82,7 @@
   .policy-toolbar { padding: 0 12px; }
   .policy-tab { padding: 10px 9px 11px; font-size: 13px; }
   .policy-toolbar .policy-actions { padding: 10px 0; width: 100%; }
-  .policy-detail .policy-rules, .view-heading { padding-left: 16px; padding-right: 16px; }
+  .policy-detail .policy-rules, .view-heading, .policy-detail > .audience-switch { padding-left: 16px; padding-right: 16px; }
   /* Too narrow for four fixed columns: the table keeps a readable width and scrolls sideways. */
   .masking-preview { table-layout: auto; min-width: 580px; }
 

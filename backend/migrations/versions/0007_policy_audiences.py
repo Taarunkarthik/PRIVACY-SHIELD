@@ -1,14 +1,14 @@
 """Give every policy rule an audience, so one policy can mask a table per audience.
 
 Revision ID: 0007_policy_audiences
-Revises: 0005_format_masks
+Revises: 0006_audit_chain
 """
 
 import sqlalchemy as sa
 from alembic import op
 
 revision = "0007_policy_audiences"
-down_revision = "0005_format_masks"
+down_revision = "0006_audit_chain"
 branch_labels = None
 depends_on = None
 

@@ -1,19 +1,22 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
-import { ArrowRight, Check, ChevronLeft, ChevronRight, FileClock, Play, Plus, RefreshCw, Send, ShieldCheck, Sparkles, X } from 'lucide-react';
+import { ArrowRight, Check, ChevronLeft, ChevronRight, Copy, FileClock, Play, Plus, RefreshCw, Send, ShieldCheck, Sparkles, X } from 'lucide-react';
 import { api, ApiError } from '../api/client';
 import { useAuth } from '../api/auth';
 import type { Connection, SchemaSnapshot } from '../api/connections';
 import { classificationCategory } from '../api/classifications';
-import type { Policy, PolicyPage, PolicyPreview, PolicyAction, PolicySamples, PolicySuggestions, ProtectedOutput, RuleSuggestion } from '../api/policies';
-import { actionHint, actionLabel, policyStatusLabel } from '../api/policies';
+import type { Audience, Policy, PolicyPage, PolicyPreview, PolicyAction, PolicyRule, PolicySamples, PolicySuggestions, ProtectedOutput, RuleSuggestion } from '../api/policies';
+import { actionHint, actionLabel, AUDIENCES, audienceLabel, audienceRole, policyAudiences, policyStatusLabel } from '../api/policies';
 import { MaskReveal } from '../components/MaskReveal';
 
 const ACTIONS: PolicyAction[] = ['KEEP', 'MASK_EMAIL', 'MASK_PHONE', 'MASK_ID', 'PARTIAL', 'REDACT', 'PSEUDONYMIZE', 'NULLIFY', 'RESTRICT'];
 // The pseudonym key domain provisioned on the bundled demonstration target.
 const DEFAULT_PSEUDONYM_DOMAIN = 'demo';
-// The API accepts at most this many rules in one policy.
+// The API accepts at most this many rules for each audience of one policy.
 const MAX_RULES = 200;
+
+// General readers are the default audience, so requests for them carry no parameter.
+const audienceQuery = (audience: Audience) => (audience === 'reader' ? '' : `?audience=${audience}`);
 
 // What the right-hand side shows for the selected policy.
 type PolicyView = 'rules' | 'preview' | 'output';
@@ -40,13 +43,20 @@ export function Policies() {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [samples, setSamples] = useState<PolicySamples | null>(null);
   const previewRequest = useRef(0);
+  const previewKey = useRef('');
   const [output, setOutput] = useState<ProtectedOutput | null>(null);
   const [outputLoading, setOutputLoading] = useState(false);
+  const outputRequest = useRef(0);
+  const outputKey = useRef('');
   const [view, setView] = useState<PolicyView>('rules');
+  const [audience, setAudience] = useState<Audience>('reader');
   const connectionId = params.get('connection') || connections.find((c) => c.is_active)?.id || connections[0]?.id || '';
   const connection = connections.find((c) => c.id === connectionId);
   const selectedId = params.get('policy') || policies?.items[0]?.id || '';
   const selected = policies?.items.find((p) => p.id === selectedId) || null;
+  // The audiences this policy has a view for, and the one on screen.
+  const audiences = selected ? policyAudiences(selected) : AUDIENCES.slice(0, 1);
+  const shownAudience: Audience = audiences.includes(audience) ? audience : 'reader';
 
   useEffect(() => {
     const controller = new AbortController();
@@ -114,61 +124,78 @@ export function Policies() {
     finally { setActionLoading(''); }
   }
 
-  async function loadPreview(id: string) {
-    // Each click supersedes the last one, so a slow earlier response cannot
+  async function loadPreview(id: string, forAudience: Audience) {
+    // Each request supersedes the last one, so a slow earlier response cannot
     // overwrite the preview that was asked for most recently.
     const request = ++previewRequest.current;
     const current = () => request === previewRequest.current;
+    previewKey.current = `${id}:${forAudience}`;
+    const query = audienceQuery(forAudience);
     setPreviewLoading(true); setPreviewError(''); setPreview(null); setSamples(null);
     try {
-      const v = await api<PolicyPreview>(`/policies/${encodeURIComponent(id)}/preview`);
+      const v = await api<PolicyPreview>(`/policies/${encodeURIComponent(id)}/preview${query}`);
       if (!current()) return;
       setPreview(v);
       // The before/after illustration is optional: it needs the target database,
       // so the compiled preview is shown even when the illustration is unavailable.
-      api<PolicySamples>(`/policies/${encodeURIComponent(id)}/preview/samples`)
+      api<PolicySamples>(`/policies/${encodeURIComponent(id)}/preview/samples${query}`)
         .then((value) => { if (current()) setSamples(value); })
-        .catch(() => { if (current()) setSamples({ policy_id: id, status: 'UNAVAILABLE', source: 'FABRICATED', columns: [], before: [], after: [] }); });
+        .catch(() => { if (current()) setSamples({ policy_id: id, status: 'UNAVAILABLE', source: 'FABRICATED', audience: forAudience, columns: [], before: [], after: [] }); });
     } catch (r) { if (current()) setPreviewError(r instanceof ApiError ? r.message : 'Could not load preview.'); }
     finally { if (current()) setPreviewLoading(false); }
   }
 
-  async function loadOutput(id: string) {
+  async function loadOutput(id: string, forAudience: Audience) {
+    const request = ++outputRequest.current;
+    const current = () => request === outputRequest.current;
+    outputKey.current = `${id}:${forAudience}`;
     setOutputLoading(true); setActionError(''); setOutput(null);
     try {
-      setOutput(await api<ProtectedOutput>(`/policies/${encodeURIComponent(id)}/protected-output`));
+      const value = await api<ProtectedOutput>(`/policies/${encodeURIComponent(id)}/protected-output${audienceQuery(forAudience)}`);
+      if (current()) setOutput(value);
     } catch (r) {
-      setActionError(r instanceof ApiError && r.status === 409
+      if (current()) setActionError(r instanceof ApiError && r.status === 409
         ? 'Protected output is not available for this version. A newer version may have replaced it, or its connection or schema may have changed.'
         : r instanceof ApiError ? r.message : 'Could not load the protected output.');
     }
-    finally { setOutputLoading(false); }
+    finally { if (current()) setOutputLoading(false); }
   }
 
-  // A preview or output belongs to one policy; hide it when another is selected.
-  const shownPreview = preview && preview.policy_id === selectedId ? preview : null;
-  const ownSamples = shownPreview && samples?.policy_id === selectedId ? samples : null;
+  // A preview or output belongs to one policy and one audience; hide it when another is chosen.
+  const shownPreview = preview && preview.policy_id === selectedId && (preview.audience ?? 'reader') === shownAudience ? preview : null;
+  const ownSamples = shownPreview && samples?.policy_id === selectedId && (samples.audience ?? 'reader') === shownAudience ? samples : null;
   const shownSamples = ownSamples?.status === 'OK' ? ownSamples : null;
   const hasPseudonym = Boolean(shownSamples?.columns.some((col) => col.action === 'PSEUDONYMIZE'));
-  const shownOutput = output && output.policy_id === selectedId ? output : null;
+  const shownOutput = output && output.policy_id === selectedId && (output.audience ?? 'reader') === shownAudience ? output : null;
   // Rows through the deployed view are for administrators, and exist only once a policy is deployed.
   const canSeeOutput = canApprove && selected?.status === 'DEPLOYED';
   const shownView: PolicyView = view === 'output' && !canSeeOutput ? 'rules' : view;
 
   function selectPolicy(id: string) {
     setView('rules');
+    setAudience('reader');
     setParams({ connection: connectionId, policy: id });
   }
 
-  // Opening a tab loads what it shows, unless that is already on screen.
+  // Opening a tab loads what it shows, unless that is already on screen or on its way.
   function openPreview(id: string) {
     setView('preview');
-    if (!shownPreview && !previewLoading) void loadPreview(id);
+    const pending = previewLoading && previewKey.current === `${id}:${shownAudience}`;
+    if (!shownPreview && !pending) void loadPreview(id, shownAudience);
   }
 
   function openOutput(id: string) {
     setView('output');
-    if (!shownOutput && !outputLoading) void loadOutput(id);
+    const pending = outputLoading && outputKey.current === `${id}:${shownAudience}`;
+    if (!shownOutput && !pending) void loadOutput(id, shownAudience);
+  }
+
+  // Switching audience reloads the view on screen for that audience's role.
+  function chooseAudience(id: string, next: Audience) {
+    if (next === shownAudience) return;
+    setAudience(next);
+    if (shownView === 'preview') void loadPreview(id, next);
+    if (shownView === 'output') void loadOutput(id, next);
   }
 
   return <div className="page-content policies-page">
@@ -224,17 +251,27 @@ export function Policies() {
 
         {shownView === 'rules' && <div className="policy-rules">
           <h3>Protection rules</h3>
-          <div className="rules-table">
-            <div className="rules-header"><span>Column</span><span>Action</span><span>Domain</span></div>
-            {selected.rules.map((rule) => (
-              <div className="rules-row" key={rule.column_name}>
-                <span className="rule-column">{rule.column_name}</span>
-                <span><span className={`pill action-${rule.action.toLowerCase().replace('_', '-')}`}>{actionLabel[rule.action]}</span></span>
-                <span className="rule-domain">{rule.pseudonym_domain || '—'}</span>
-              </div>
-            ))}
-          </div>
+          {audiences.length === 1
+            ? <div className="rules-table">
+              <div className="rules-header"><span>Column</span><span>Action</span><span>Domain</span></div>
+              {selected.rules.map((rule) => (
+                <div className="rules-row" key={rule.column_name}>
+                  <span className="rule-column">{rule.column_name}</span>
+                  <span><span className={`pill action-${rule.action.toLowerCase().replace('_', '-')}`}>{actionLabel[rule.action]}</span></span>
+                  <span className="rule-domain">{rule.pseudonym_domain || '—'}</span>
+                </div>
+              ))}
+            </div>
+            : <AudienceRules rules={selected.rules} audiences={audiences} />}
         </div>}
+
+        {shownView !== 'rules' && audiences.length > 1 && <AudienceSwitch
+          label="Audience"
+          audiences={audiences}
+          value={shownAudience}
+          onChange={(next) => chooseAudience(selected.id, next)}
+          detail={(item) => audienceRole[item]}
+        />}
 
         {shownView === 'preview' && (shownPreview ? <section className="policy-preview" aria-label="Policy preview">
           <div className="view-heading"><h3>Preview: {shownPreview.view_schema}.{shownPreview.view_name}</h3><p>Security-barrier view with {shownPreview.columns.length} columns.</p></div>
@@ -297,6 +334,47 @@ function MaskedCell({ value, changed = false, exposed = false }: { value: string
   return <code className={changed ? 'masked-value' : exposed ? 'exposed-value' : undefined}>{value}</code>;
 }
 
+function emptyAudienceMap<T>(): Record<Audience, Record<string, T>> {
+  return { reader: {}, support: {}, analyst: {} };
+}
+
+/** Chooses which audience a view or an editor is showing. Toggle buttons, like the view switcher. */
+function AudienceSwitch({ label, audiences, value, onChange, detail }: { label: string; audiences: Audience[]; value: Audience; onChange: (audience: Audience) => void; detail: (audience: Audience) => string }) {
+  return <div className="audience-switch" role="group" aria-label={label}>
+    <span className="audience-switch-label">{label}</span>
+    {audiences.map((item) => (
+      <button type="button" className="audience-option" key={item} aria-pressed={value === item} onClick={() => onChange(item)}>
+        <strong>{audienceLabel[item]}</strong><small>{detail(item)}</small>
+      </button>
+    ))}
+  </div>;
+}
+
+/** The rules of a policy that masks one table differently for several audiences, side by side. */
+function AudienceRules({ rules, audiences }: { rules: PolicyRule[]; audiences: Audience[] }) {
+  const columns = [...new Set(rules.map((rule) => rule.column_name))];
+  const ruleFor = (column: string, audience: Audience) => rules.find((rule) => rule.column_name === column && (rule.audience ?? 'reader') === audience);
+  return <>
+    <p className="rules-editor-note">Each audience reads its own masked view through its own database role. A column without a rule for an audience is NULL in that audience's view.</p>
+    <div className="table-scroll">
+      <table className="columns-table audience-matrix">
+        <thead><tr><th scope="col">Column</th>{audiences.map((item) => <th scope="col" key={item}>{audienceLabel[item]}<small className="masking-type">{audienceRole[item]}</small></th>)}</tr></thead>
+        <tbody>{columns.map((column) => (
+          <tr key={column}>
+            <th scope="row">{column}</th>
+            {audiences.map((item) => {
+              const rule = ruleFor(column, item);
+              return <td key={item}>{rule
+                ? <><span className={`pill action-${rule.action.toLowerCase().replace('_', '-')}`}>{actionLabel[rule.action]}</span>{rule.pseudonym_domain && <small className="masking-type">key domain {rule.pseudonym_domain}</small>}</>
+                : <span className="masked-null">NULL</span>}</td>;
+            })}
+          </tr>
+        ))}</tbody>
+      </table>
+    </div>
+  </>;
+}
+
 function suggestionNote(suggestion: RuleSuggestion | undefined): string {
   if (!suggestion || suggestion.source === 'NOT_SCANNED') return 'Not scanned yet';
   if (suggestion.source === 'NO_FINDINGS') {
@@ -315,8 +393,12 @@ function CreatePolicyDialog({ connectionId, onClose, onError, onCreated }: { con
   const [snapshot, setSnapshot] = useState<SchemaSnapshot | null>(null);
   const [snapshotLoading, setSnapshotLoading] = useState(true);
   const [selectedTable, setSelectedTable] = useState('');
-  const [rules, setRules] = useState<Record<string, PolicyAction>>({});
-  const [domains, setDomains] = useState<Record<string, string>>({});
+  // One set of rules per audience; the editor shows one audience at a time.
+  const [allRules, setAllRules] = useState<Record<Audience, Record<string, PolicyAction>>>(emptyAudienceMap);
+  const [allDomains, setAllDomains] = useState<Record<Audience, Record<string, string>>>(emptyAudienceMap);
+  const [editing, setEditing] = useState<Audience>('reader');
+  const rules = allRules[editing];
+  const domains = allDomains[editing];
   const [suggestions, setSuggestions] = useState<PolicySuggestions | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -352,21 +434,31 @@ function CreatePolicyDialog({ connectionId, onClose, onError, onCreated }: { con
   const suggested = (suggestions?.columns ?? []).filter((item) => item.action);
 
   function setRule(column: string, action: PolicyAction | '') {
-    setRules((prev) => {
-      const next = { ...prev };
+    setAllRules((prev) => {
+      const next = { ...prev[editing] };
       if (action) next[column] = action;
       else delete next[column];
-      return next;
+      return { ...prev, [editing]: next };
     });
   }
 
-  // Suggestions fill only the columns still without a rule, so a choice already
-  // made by hand is never overwritten.
-  const pending = suggested.filter((item) => !rules[item.column_name]);
+  // Suggestions are made for general readers. They fill only the columns still
+  // without a rule, so a choice already made by hand is never overwritten.
+  const pending = editing === 'reader' ? suggested.filter((item) => !rules[item.column_name]) : [];
   function applySuggestions() {
-    setRules((prev) => ({ ...Object.fromEntries(pending.map((item) => [item.column_name, item.action as PolicyAction])), ...prev }));
+    setAllRules((prev) => ({ ...prev, reader: { ...Object.fromEntries(pending.map((item) => [item.column_name, item.action as PolicyAction])), ...prev.reader } }));
   }
-  const ruleCount = Object.keys(rules).length;
+
+  // Another audience can start from the general reader rules and be loosened from there.
+  const copyable = editing === 'reader' ? [] : Object.keys(allRules.reader).filter((column) => !rules[column]);
+  function copyReaderRules() {
+    setAllRules((prev) => ({ ...prev, [editing]: { ...prev.reader, ...prev[editing] } }));
+    setAllDomains((prev) => ({ ...prev, [editing]: { ...prev.reader, ...prev[editing] } }));
+  }
+
+  const counts = Object.fromEntries(AUDIENCES.map((item) => [item, Object.keys(allRules[item]).length])) as Record<Audience, number>;
+  const ruleCount = AUDIENCES.reduce((total, item) => total + counts[item], 0);
+  const overLimit = AUDIENCES.find((item) => counts[item] > MAX_RULES);
 
   async function create() {
     if (!table || !user) return;
@@ -380,12 +472,14 @@ function CreatePolicyDialog({ connectionId, onClose, onError, onCreated }: { con
           schema_name: table.schema,
           table_name: table.name,
           snapshot_id: snapshot!.snapshot_id,
-          rules: Object.entries(rules).map(([column_name, action]) => ({
+          rules: AUDIENCES.flatMap((audience) => Object.entries(allRules[audience]).map(([column_name, action]) => ({
             column_name,
             action,
-            ...(action === 'PSEUDONYMIZE' ? { pseudonym_domain: (domains[column_name] ?? DEFAULT_PSEUDONYM_DOMAIN).trim() || DEFAULT_PSEUDONYM_DOMAIN } : {}),
-            ...(byColumn.get(column_name)?.classification_id ? { classification_id: byColumn.get(column_name)!.classification_id } : {}),
-          })),
+            // General readers are the default, so their rules are sent as before.
+            ...(audience === 'reader' ? {} : { audience }),
+            ...(action === 'PSEUDONYMIZE' ? { pseudonym_domain: (allDomains[audience][column_name] ?? DEFAULT_PSEUDONYM_DOMAIN).trim() || DEFAULT_PSEUDONYM_DOMAIN } : {}),
+            ...(audience === 'reader' && byColumn.get(column_name)?.classification_id ? { classification_id: byColumn.get(column_name)!.classification_id } : {}),
+          }))),
         }),
       });
       onCreated(created.id);
@@ -400,15 +494,25 @@ function CreatePolicyDialog({ connectionId, onClose, onError, onCreated }: { con
         : !snapshot ? <div className="data-empty"><p>No schema snapshot found. Discover the schema first.</p></div>
         : <>
           <div className="form-field"><label htmlFor="policy-table">Table</label>
-            <select id="policy-table" value={selectedTable} onChange={(e) => { setSelectedTable(e.target.value); setRules({}); setDomains({}); }}>
+            <select id="policy-table" value={selectedTable} onChange={(e) => { setSelectedTable(e.target.value); setAllRules(emptyAudienceMap()); setAllDomains(emptyAudienceMap()); setEditing('reader'); }}>
               <option value="">Choose a table</option>
               {snapshot.catalog.tables.map((t) => <option key={tableKey(t)} value={tableKey(t)}>{t.schema}.{t.name}</option>)}
             </select>
           </div>
           {table && <div className="rules-editor">
+            <AudienceSwitch
+              label="Rules for"
+              audiences={AUDIENCES}
+              value={editing}
+              onChange={setEditing}
+              detail={(item) => counts[item] ? `${counts[item]} ${counts[item] === 1 ? 'rule' : 'rules'}` : item === 'reader' ? 'all NULL' : 'no view'}
+            />
             <div className="suggestion-bar">
-              <p className="rules-editor-note">Choose what the reader role sees in each column. A column with no rule is returned as NULL.</p>
+              <p className="rules-editor-note">{editing === 'reader'
+                ? 'Choose what the reader role sees in each column. A column with no rule is returned as NULL.'
+                : <>{audienceLabel[editing]} read their own view through the <code>{audienceRole[editing]}</code> role. It is created only if you add at least one rule here, and it never changes what general readers see. A column with no rule is returned as NULL.</>}</p>
               {pending.length > 0 && <button type="button" className="button secondary" onClick={applySuggestions}><Sparkles size={14} /> Apply {pending.length} {pending.length === 1 ? 'suggestion' : 'suggestions'}</button>}
+              {copyable.length > 0 && <button type="button" className="button secondary" onClick={copyReaderRules}><Copy size={14} /> Start from the general reader rules</button>}
             </div>
             {suggestions && !suggestions.scan_id && <p className="rules-editor-note">No completed scan for this connection yet, so there are no suggestions. Run a scan to get them.</p>}
             <div className="rules-editor-list">
@@ -427,7 +531,7 @@ function CreatePolicyDialog({ connectionId, onClose, onError, onCreated }: { con
                       {ACTIONS.map((item) => <option key={item} value={item}>{actionLabel[item]}</option>)}
                     </select>
                     {action === 'PSEUDONYMIZE'
-                      ? <input aria-label={`Pseudonym key domain for ${col.name}`} value={domains[col.name] ?? DEFAULT_PSEUDONYM_DOMAIN} maxLength={60} onChange={(e) => setDomains((prev) => ({ ...prev, [col.name]: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '') }))} />
+                      ? <input aria-label={`Pseudonym key domain for ${col.name}`} value={domains[col.name] ?? DEFAULT_PSEUDONYM_DOMAIN} maxLength={60} onChange={(e) => setAllDomains((prev) => ({ ...prev, [editing]: { ...prev[editing], [col.name]: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '') } }))} />
                       : <small>{action ? actionHint[action] : 'Returned as NULL'}</small>}
                   </span>
                 </div>;
@@ -436,8 +540,8 @@ function CreatePolicyDialog({ connectionId, onClose, onError, onCreated }: { con
           </div>}
           <div className="modal-actions">
             <button className="button secondary" onClick={onClose}>Cancel</button>
-            {ruleCount > MAX_RULES && <p className="rules-editor-note" role="alert">A policy can hold at most {MAX_RULES} rules. Remove {ruleCount - MAX_RULES} to continue; columns without a rule are returned as NULL.</p>}
-            <button className="button primary" disabled={!table || loading || ruleCount === 0 || ruleCount > MAX_RULES} onClick={create}>{loading ? 'Creating…' : 'Create policy'}</button>
+            {overLimit && <p className="rules-editor-note" role="alert">A policy can hold at most {MAX_RULES} rules for each audience. Remove {counts[overLimit] - MAX_RULES} of the rules for {audienceLabel[overLimit].toLowerCase()} to continue; columns without a rule are returned as NULL.</p>}
+            <button className="button primary" disabled={!table || loading || ruleCount === 0 || Boolean(overLimit)} onClick={create}>{loading ? 'Creating…' : 'Create policy'}</button>
           </div>
         </>}
     </div>

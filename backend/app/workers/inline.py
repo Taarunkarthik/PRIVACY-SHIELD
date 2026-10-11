@@ -14,7 +14,8 @@ supplied:
   request that queued it has committed;
 * the periodic sweep: every 15 seconds the same ``dispatch_*`` functions Celery
   beat calls re-enqueue eligible rows, which is also how a job left ``RUNNING``
-  by a killed process is picked up after a restart;
+  by a killed process is picked up after a restart; the same sweep seals new
+  audit events into the audit hash chain;
 * time limits: a soft limit raises ``SoftTimeLimitExceeded`` inside the job (the
   job modules already turn that into a ``*_TIMEOUT`` failure), and a hard limit
   ends the process so the platform restarts it and the row is recovered.
@@ -92,6 +93,14 @@ def _sweep_deployments() -> int:
     return dispatch_deployments()
 
 
+def _seal_audit_chain() -> int:
+    # The audit chain is sealed by Celery beat in the worker deployment. Here the
+    # same call rides the sweep, so a single-service deployment stays sealed too.
+    from app.services.audit_chain import seal_audit_chain
+
+    return seal_audit_chain()
+
+
 RUNNERS: dict[str, Callable[[UUID], None]] = {
     "scan": _run_scan,
     "classify": _run_classification,
@@ -101,6 +110,7 @@ SWEEPERS: tuple[Callable[[], int], ...] = (
     _sweep_scans,
     _sweep_classifications,
     _sweep_deployments,
+    _seal_audit_chain,
 )
 
 

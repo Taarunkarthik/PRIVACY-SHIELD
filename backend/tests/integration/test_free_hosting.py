@@ -545,6 +545,23 @@ def test_start_script_serves_the_whole_product_from_one_process(instance, tmp_pa
         policy, deployment, preview = hosted.deploy_policy(session, demo["id"], snapshot_id)
         assert policy["status"] == "DEPLOYED", policy
         assert deployment["status"] == "COMPLETED", deployment
+
+        # No Celery beat exists here: the in-process sweep is what seals audit events
+        # into the hash chain. Checked in the database first, because the verify
+        # endpoint seals before it reads and would hide a sweep that never did.
+        deadline = time.monotonic() + 45
+        while True:
+            with instance.server.connect(instance.control_db) as connection:
+                sealed, events = connection.execute(
+                    "SELECT (SELECT count(*) FROM audit_chain), (SELECT count(*) FROM audit_events)"
+                ).fetchone()
+            if sealed == events or time.monotonic() > deadline:
+                break
+            time.sleep(1)
+        assert sealed == events > 5, (sealed, events)
+        chain = session.get("/api/v1/audit-events/verify").json()
+        assert chain["status"] == "INTACT" and chain["pending"] == 0, chain
+        assert chain["sealed"] == events
         session.close()
 
         view = f'{preview["view_schema"]}."{preview["view_name"]}"'

@@ -36,13 +36,40 @@ const suggestion = (column_name: string, extra: object) => ({
   sampled_rows: 0, matching_rows: 0, classification_id: null, ai_recommendation: null, ai_risk: null, ...extra,
 });
 
-function server({ role = 'ADMIN', status = 'DRAFT', samples = false } = {}) {
+// The same policy with a second audience: support staff see part of the phone number.
+const supportRules = [
+  ...rules,
+  { policy_id: 'policy-1', column_name: 'id', audience: 'support', action: 'KEEP', pseudonym_domain: null, classification_id: null },
+  { policy_id: 'policy-1', column_name: 'phone', audience: 'support', action: 'MASK_PHONE', pseudonym_domain: null, classification_id: null },
+];
+
+function server({ role = 'ADMIN', status = 'DRAFT', samples = false, withSupport = false } = {}) {
   let current = status;
   const fetchMock = vi.fn(async (url: RequestInfo | URL, options?: RequestInit) => {
     const path = String(url);
     const method = options?.method ?? 'GET';
     if (path.endsWith('/auth/me')) return json({ id: 'user-1', email: 'admin@example.test', role, csrf_token: 'csrf-policy' });
     if (path.includes('/connections?')) return json({ items: [connection], total: 1, page: 1, page_size: 100 });
+    if (path.endsWith('/policies/policy-1/preview?audience=support')) return json({
+      policy_id: 'policy-1', schema_name: 'enterprise', table_name: 'customers',
+      view_schema: 'privacyshield_masked', view_name: 'customers_abc123_support',
+      columns: [
+        { name: 'id', data_type: 'bigint', action: 'KEEP', pseudonym_domain: null, source_column: 'id' },
+        { name: 'phone', data_type: 'text', action: 'MASK_PHONE', pseudonym_domain: null, source_column: 'phone' },
+      ],
+      sql: 'CREATE OR REPLACE VIEW "privacyshield_masked"."customers_abc123_support" WITH (security_barrier = true) AS',
+      audience: 'support', role: 'ps_support', audiences: ['reader', 'support'],
+    });
+    if (path.endsWith('/policies/policy-1/preview/samples?audience=support')) return json({
+      policy_id: 'policy-1', status: 'UNAVAILABLE', source: 'FABRICATED', audience: 'support', columns: [], before: [], after: [],
+    });
+    if (path.endsWith('/policies/policy-1/protected-output?audience=support')) return json({
+      policy_id: 'policy-1', audience: 'support', view_schema: 'privacyshield_masked', view_name: 'customers_abc123_support',
+      source_schema: 'enterprise', source_table: 'customers',
+      columns: [{ name: 'id', data_type: 'bigint', action: 'KEEP' }, { name: 'phone', data_type: 'text', action: 'MASK_PHONE' }],
+      rows: [['1', '+** ***** *0001']], row_limit: 5,
+      access: { reader_role: 'ps_support', reader_can_read_view: true, reader_can_read_source: false },
+    });
     if (path.endsWith('/policies/policy-1/preview')) return json({
       policy_id: 'policy-1', schema_name: 'enterprise', table_name: 'customers',
       view_schema: 'privacyshield_masked', view_name: 'customers_abc123',
@@ -91,7 +118,7 @@ function server({ role = 'ADMIN', status = 'DRAFT', samples = false } = {}) {
       id: 'policy-1', connection_id: 'db-1', schema_name: 'enterprise', table_name: 'customers',
       version: 1, status: current, schema_fingerprint: 'fingerprint-1',
       compiled_plan_fingerprint: current === 'APPROVED' ? 'plan-hash' : null,
-      created_by: 'user-1', created_at: '2026-10-10T00:00:00Z', rules,
+      created_by: 'user-1', created_at: '2026-10-10T00:00:00Z', rules: withSupport ? supportRules : rules,
     };
   }
   vi.stubGlobal('fetch', fetchMock);
@@ -190,6 +217,64 @@ describe('masking policy workflow', () => {
         { column_name: 'notes', action: 'PSEUDONYMIZE', pseudonym_domain: 'demo' },
       ],
     });
+  });
+
+  it('writes separate rules for another audience and sends them with that audience', async () => {
+    const fetchMock = server();
+    const visitor = userEvent.setup({ delay: null });
+    render(<App />);
+    await visitor.click(await screen.findByRole('button', { name: 'New policy' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Create policy' });
+    await visitor.selectOptions(await within(dialog).findByLabelText('Table'), 'enterprise.customers');
+    await visitor.selectOptions(within(dialog).getByLabelText('Action for id'), 'KEEP');
+    await visitor.selectOptions(within(dialog).getByLabelText('Action for email'), 'REDACT');
+
+    const audiences = within(dialog).getByRole('group', { name: 'Rules for' });
+    await visitor.click(within(audiences).getByRole('button', { name: /Support/ }));
+    // Each audience starts empty: nothing is inherited from general readers.
+    expect(within(dialog).getByLabelText('Action for email')).toHaveValue('');
+    expect(within(dialog).queryByRole('button', { name: /Apply/ })).not.toBeInTheDocument();
+    await visitor.click(within(dialog).getByRole('button', { name: 'Start from the general reader rules' }));
+    expect(within(dialog).getByLabelText('Action for email')).toHaveValue('REDACT');
+    await visitor.selectOptions(within(dialog).getByLabelText('Action for email'), 'MASK_EMAIL');
+    // Loosening the support rule leaves the general reader rule as it was.
+    await visitor.click(within(audiences).getByRole('button', { name: /General readers/ }));
+    expect(within(dialog).getByLabelText('Action for email')).toHaveValue('REDACT');
+
+    await visitor.click(within(dialog).getByRole('button', { name: 'Create policy' }));
+    const posted = fetchMock.mock.calls.find(([path, options]) => String(path).endsWith('/policies') && options?.method === 'POST');
+    expect(JSON.parse(String(posted?.[1]?.body)).rules).toEqual([
+      { column_name: 'id', action: 'KEEP' },
+      { column_name: 'email', action: 'REDACT', classification_id: 'class-1' },
+      { column_name: 'id', action: 'KEEP', audience: 'support' },
+      { column_name: 'email', action: 'MASK_EMAIL', audience: 'support' },
+    ]);
+  });
+
+  it('shows each audience of a policy its own rules, preview and protected output', async () => {
+    const fetchMock = server({ status: 'DEPLOYED', withSupport: true });
+    const visitor = userEvent.setup({ delay: null });
+    render(<App />);
+    // Rules side by side: support sees a masked phone number where general readers see NULL.
+    const phone = await screen.findByRole('row', { name: /^phone/ });
+    expect(within(phone).getByText('Nullify')).toBeInTheDocument();
+    expect(within(phone).getByText('Mask phone')).toBeInTheDocument();
+    const email = screen.getByRole('row', { name: /^email/ });
+    expect(within(email).getByText('NULL')).toBeInTheDocument();
+
+    await visitor.click(screen.getByRole('button', { name: 'Preview' }));
+    expect(await screen.findByText('Preview: privacyshield_masked.customers_abc123')).toBeInTheDocument();
+    const audiences = screen.getByRole('group', { name: 'Audience' });
+    await visitor.click(within(audiences).getByRole('button', { name: /Support/ }));
+    expect(await screen.findByText('Preview: privacyshield_masked.customers_abc123_support')).toBeInTheDocument();
+    expect(screen.queryByText('Preview: privacyshield_masked.customers_abc123')).not.toBeInTheDocument();
+
+    // The audience stays chosen when moving to the rows through the deployed view.
+    await visitor.click(screen.getByRole('button', { name: 'View protected output' }));
+    const output = await screen.findByRole('region', { name: 'Protected output' });
+    expect(within(output).getByText('+** ***** *0001')).toBeInTheDocument();
+    expect(within(output).getAllByText('ps_support').length).toBeGreaterThan(0);
+    expect(fetchMock.mock.calls.some(([path]) => String(path).endsWith('/policies/policy-1/protected-output'))).toBe(false);
   });
 
   it('does not offer approval to analysts', async () => {

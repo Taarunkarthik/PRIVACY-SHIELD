@@ -367,3 +367,12 @@ def test_celery_mode_readiness_keeps_its_shape():
     assert set(body) == {"status", "checks"}
     assert set(body["checks"]) == {"database", "redis"}
     assert set(body["checks"].values()) <= {"ok", "unavailable"}
+
+
+def test_the_sweep_also_seals_the_audit_chain():
+    # Celery beat seals the audit chain in the worker deployment. Without a
+    # worker, the sweep is the only thing that can.
+    from app.workers import celery_app, inline
+
+    assert inline._seal_audit_chain in inline.SWEEPERS
+    assert "seal-audit-chain" in celery_app.celery_app.conf.beat_schedule

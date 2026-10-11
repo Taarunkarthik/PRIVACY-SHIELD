@@ -10,7 +10,9 @@ All seven phases are delivered: the control-plane schema, authenticated API, Rea
 
 The latest verified commit is [`964686a`](https://github.com/Taarunkarthik/PRIVACY-SHIELD/commit/964686a6301fb3bf2a5bd3b5ddc1f40cd8c622ac). See [Phase 7 verification evidence](docs/verification-phase7.md) and [the delivery roadmap](docs/roadmap.md) for current status and measured limitations.
 
-After Phase 7, branch `feat/demo-readiness` adds format-aware masks for email, phone and ID numbers, a before/after policy preview on invented values, evidence of what the reader role sees through a deployed view, suggested rules from scan findings, dashboard breakdowns, random row sampling, checksum rules for Aadhaar and PAN, and a labelled accuracy benchmark. These commits passed the local suite described in the [demo-readiness verification record](docs/verification-demo-readiness.md); they have not yet run in GitHub Actions or under Docker Compose.
+After Phase 7, branch `feat/demo-readiness` adds format-aware masks for email, phone and ID numbers, a before/after policy preview on invented values, evidence of what the reader role sees through a deployed view, suggested rules from scan findings, dashboard breakdowns, random row sampling, checksum rules for Aadhaar and PAN, and a labelled accuracy benchmark. These commits passed the local suite described in the [demo-readiness verification record](docs/verification-demo-readiness.md) and [GitHub Actions run 38116499292](https://github.com/Taarunkarthik/PRIVACY-SHIELD/actions/runs/38116499292).
+
+The submission build adds five things on top of that: a tamper-evident hash chain over the audit log, masking per audience (one policy can give general readers, support staff and analysts differently masked views of the same table), value-shape evidence and detector triage for AI classification, a single-container deployment that runs on free hosting without Redis or a worker, and a redesigned interface. What was run, and what was not, is in the [submission-build verification record](docs/verification-submission-build.md).
 
 The submission target is **12 October 2026**, with working code and a reproducible demonstration. The seven phase gates remain in place within the three-day work window; the schedule is a target, not a guarantee of completion.
 
@@ -39,9 +41,12 @@ docker compose exec api python -m app.cli create-admin --email admin@example.com
 
 Enter a strong unique password at the hidden prompt, then open [the local dashboard](http://localhost:8080). There is no committed default administrator password. Authentication uses server-side sessions and CSRF protection.
 
-**Hosted option:** the repository includes a Render Blueprint (`render.yaml`) that
-deploys the full stack (API, Celery worker, nginx frontend, Redis, and two
-Postgres databases). See [Deploying on Render](docs/deploy-render.md).
+**Hosted option:** the repository includes a Render Blueprint (`render.yaml`) for
+the free plan: one web service that serves the API, the frontend and the
+background jobs from the repository-root `Dockerfile`, and one Postgres
+instance. It needs no Redis and no worker. The earlier multi-service layout,
+which needs paid plans, is kept as `render.paid.yaml`. See
+[Deploying on Render](docs/deploy-render.md).
 
 **Windows storage:** use Docker Desktop's supported storage controls to locate Linux disk images and named volumes on D: before the first build. Preserve existing Docker data. Do not move, delete, or unregister Docker/WSL distributions manually. See [operations and troubleshooting](docs/operations.md).
 
@@ -79,7 +84,7 @@ Integration tests require migrated PostgreSQL, Redis, and a **separate Linux Cel
 
 ## Architecture and documentation
 
-The backend is a FastAPI modular monolith shared by API and Celery processes. A dedicated PostgreSQL database stores control-plane metadata. A second PostgreSQL service holds exclusively synthetic customer, account, transaction, and support data. Redis carries jobs; PostgreSQL stores authoritative job state. Enable the optional `ai` profile for local Ollama recommendations.
+The backend is a FastAPI modular monolith shared by API and Celery processes. A dedicated PostgreSQL database stores control-plane metadata. A second PostgreSQL service holds exclusively synthetic customer, account, transaction, and support data. Redis carries jobs; PostgreSQL stores authoritative job state. With `JOB_RUNNER=inline` the API process runs the jobs itself and Redis is not used, which is how the single-container hosted deployment works. Enable the optional `ai` profile for local Ollama recommendations.
 
 | Directory | Responsibility |
 | --- | --- |
@@ -96,6 +101,8 @@ The backend is a FastAPI modular monolith shared by API and Celery processes. A 
 - [Bounded PII scanning and demo](docs/scanning.md)
 - [Local AI classification and actual model checks](docs/classification.md)
 - [Masking policies, approval, and deployment](docs/masking.md)
+- [Masking audiences: one policy, a different view per database role](docs/masking-audiences.md)
+- [Audit hash chain: what it detects and what it cannot](docs/audit-chain.md)
 - [Detection accuracy: measured precision, recall and known false positives](docs/detection-accuracy.md)
 - [Deploying on Render](docs/deploy-render.md)
 - [Render deployment verification](docs/verification-render.md)
@@ -108,6 +115,7 @@ The backend is a FastAPI modular monolith shared by API and Celery processes. A 
 - [Phase 6 verification evidence](docs/verification-phase6.md)
 - [Phase 7 verification evidence](docs/verification-phase7.md)
 - [Demo-readiness verification record](docs/verification-demo-readiness.md)
+- [Submission-build verification record](docs/verification-submission-build.md)
 
 ## Security and delivery rules
 
