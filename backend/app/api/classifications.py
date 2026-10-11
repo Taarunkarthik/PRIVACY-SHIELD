@@ -16,10 +16,36 @@ from app.schemas.classifications import (
     ClassificationJobResponse,
     ClassificationPage,
     ClassificationResponse,
+    ClassificationSummary,
 )
 from app.services.classification.jobs import enqueue_classification
+from app.services.classification.triage import Triage, triage_results
 
 router = APIRouter(tags=["AI advisory classification"])
+DEFAULT_SELECTION_LIMIT = 50
+# Returned as the 409 detail when a request without a selection finds no
+# column that the detectors left undecided.
+NOTHING_UNCERTAIN = "NOTHING_UNCERTAIN"
+
+
+def whole_column_triage(db: Session, scan_id: UUID) -> Triage:
+    """Sort a scan's whole-column results into decided, uncertain and unreadable.
+
+    Rows are read in schema, table, column order, which is the order of the
+    default selection. A scan holds at most 20,000 results.
+    """
+    rows = db.execute(
+        select(
+            ScanResult.id,
+            ScanResult.sampled_rows,
+            ScanResult.matching_rows,
+            ScanResult.confidence,
+            ScanResult.sanitized_evidence,
+        )
+        .where(ScanResult.scan_job_id == scan_id, ScanResult.json_path == "")
+        .order_by(ScanResult.schema_name, ScanResult.table_name, ScanResult.column_name)
+    ).all()
+    return triage_results(rows)
 
 
 @router.post("/scans/{scan_id}/classify", response_model=ClassificationJobResponse, status_code=202)
@@ -35,22 +61,20 @@ def create_classification(
     if scan.status != "COMPLETED":
         raise HTTPException(409, "Only a completed scan can be classified")
     selected = payload.result_ids if payload else None
-    query = select(ScanResult.id).where(ScanResult.scan_job_id == scan_id)
     if selected is None:
-        query = (
-            query.where(ScanResult.json_path == "")
-            .order_by(
-                ScanResult.schema_name,
-                ScanResult.table_name,
-                ScanResult.column_name,
-            )
-            .limit(50)
-        )
+        # Without a selection, ask only about columns the detectors left
+        # undecided. A decided column can still be selected explicitly.
+        ids = whole_column_triage(db, scan_id).uncertain_ids[:DEFAULT_SELECTION_LIMIT]
+        if not ids:
+            raise HTTPException(409, NOTHING_UNCERTAIN)
     else:
-        query = query.where(ScanResult.id.in_(selected))
-    ids = db.scalars(query).all()
-    if not ids or selected is not None and len(ids) != len(selected):
-        raise HTTPException(422, "Select results belonging to this completed scan")
+        ids = db.scalars(
+            select(ScanResult.id).where(
+                ScanResult.scan_job_id == scan_id, ScanResult.id.in_(selected)
+            )
+        ).all()
+        if len(ids) != len(selected):
+            raise HTTPException(422, "Select results belonging to this completed scan")
     job = ClassificationJob(
         scan_job_id=scan_id,
         requested_by=user.id,
@@ -74,6 +98,32 @@ def create_classification(
     db.commit()
     enqueue_classification(job.id, force=True)
     return job
+
+
+@router.get("/scans/{scan_id}/classification-summary", response_model=ClassificationSummary)
+def classification_summary(
+    scan_id: UUID,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> ClassificationSummary:
+    """Counts behind the default selection, so the UI can explain it before a job starts.
+
+    The path has a literal third segment, so neither ``/scans/{job_id}`` nor
+    ``/scans/{job_id}/results`` in the scans router can match it.
+    """
+    scan = find_scan(db, scan_id)
+    if scan.status != "COMPLETED":
+        raise HTTPException(409, "Only a completed scan can be classified")
+    triage = whole_column_triage(db, scan_id)
+    return ClassificationSummary(
+        scan_id=scan_id,
+        whole_columns=triage.decided + triage.uncertain + triage.not_classifiable,
+        decided=triage.decided,
+        uncertain=triage.uncertain,
+        not_classifiable=triage.not_classifiable,
+        selection_limit=DEFAULT_SELECTION_LIMIT,
+        will_classify=min(triage.uncertain, DEFAULT_SELECTION_LIMIT),
+    )
 
 
 @router.get("/classification-jobs", response_model=ClassificationJobPage)

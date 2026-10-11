@@ -1,4 +1,5 @@
 import json
+from types import SimpleNamespace
 
 from app.services.scanning.sampling import (
     LARGE_TABLE_BYTES,
@@ -13,6 +14,7 @@ from app.services.scanning.sampling import (
     row_selection,
     safe_key,
     sample_seed,
+    sample_table,
 )
 
 
@@ -80,3 +82,96 @@ def test_row_selection_orders_by_a_seeded_hash_not_by_key():
     )
     tablesample, _ = row_selection(1024**3, 1000, seed)
     assert tablesample.as_string(None) == f" TABLESAMPLE SYSTEM (0.762939) REPEATABLE ({seed})"
+
+
+class _SampledRows:
+    """Stands in for a server-side cursor over rows the query already chose."""
+
+    def __init__(self, rows):
+        self.rows = list(rows)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def execute(self, query, parameters):
+        self.limit = parameters[0]
+
+    def fetchmany(self, size):
+        batch, self.rows = self.rows[:size], self.rows[size:]
+        return batch
+
+
+class _Target:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def execute(self, query, parameters=None):
+        return SimpleNamespace(fetchone=lambda: {"bytes": 0})
+
+    def cursor(self, name, row_factory):
+        return _SampledRows(self.rows)
+
+
+def test_shapes_are_stored_for_scalar_columns_only_and_hold_no_value():
+    emails = [f"person{n}.surname@example.com" for n in range(1, 10)]
+    table = {
+        "schema": "enterprise",
+        "name": "people",
+        "oid": 1,
+        "columns": [
+            {"name": "contact", "is_jsonb": False, "udt_name": "text"},
+            {"name": "joined", "is_jsonb": False, "udt_name": "date"},
+            {"name": "profile", "is_jsonb": True, "udt_name": "jsonb"},
+            {"name": "photo", "is_jsonb": False, "udt_name": "bytea"},
+            {"name": "nickname", "is_jsonb": False, "udt_name": "text"},
+        ],
+    }
+    # Three cells per column: value, truncated, skipped.
+    rows = [
+        (email, False, False)
+        + ("2026-10-11", False, False)
+        + (json.dumps({"email": email}), False, False)
+        + (None, False, True)
+        + (None if index else "--", False, False)
+        for index, email in enumerate(emails)
+    ]
+    seen = []
+
+    def detector(value, context):
+        seen.append(value)
+        return {}
+
+    results = list(sample_table(_Target(rows), table, 100, detector=detector))
+    evidence = {
+        (item["column_name"], item["json_path"]): item["sanitized_evidence"] for item in results
+    }
+    assert evidence[("contact", "")]["shapes"] == [{"shape": "a+9.a+@a+.a+", "rows": 9}]
+    assert evidence[("joined", "")]["shapes"] == [{"shape": "9+-9+-9+", "rows": 9}]
+    # A JSON document, a path inside it and an unread type carry no shapes key.
+    for key in [("profile", ""), ("profile", "$.email"), ("photo", "")]:
+        assert "shapes" not in evidence[key]
+    # Punctuation-only and NULL values leave the list empty, not absent.
+    assert evidence[("nickname", "")]["shapes"] == []
+    assert evidence[("nickname", "")]["values_read"] == 1
+    coverage_keys = {
+        "mode",
+        "sample_limit",
+        "max_cell_chars",
+        "max_cell_bytes",
+        "values_truncated",
+        "values_skipped",
+        "json_truncated",
+        "path_limit_reached",
+        "unsupported_type",
+    }
+    for item in evidence.values():
+        # The adapter's strict coverage model rejects any additional key.
+        assert set(item["coverage"]) == coverage_keys
+        assert set(item) <= {"labels", "coverage", "values_read", "shapes"}
+    assert emails[0] in seen  # The detector still receives the value itself.
+    stored = json.dumps(results)
+    for fragment in ["person", "surname", "example", "2026", "--"]:
+        assert fragment not in stored

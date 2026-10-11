@@ -31,7 +31,9 @@ The worker uses read-only PostgreSQL transactions, safely quoted identifiers, st
 
 Scalar input is limited to 4,096 characters (at most 16 KiB of UTF-8). JSONB cells larger than 16 KiB are skipped. Traversal is bounded to depth 6, 256 visited nodes, 64 leaves, and 32 stored whole-column/path entries per JSON column. Coverage fields disclose truncation, skipped values, unsupported types, and path limits. Treat affected columns as only partially assessed.
 
-Only category labels, counts, confidence, and coverage statistics are persisted. Source samples exist transiently during detection. A small allowlist preserves structural JSON keys such as `contact` and `email`; other keys become keyed opaque path tokens because JSON keys can themselves contain personal data. Array indices collapse to `[*]`. Unknown keys can still be checked for PII without retaining their original text.
+Only category labels, counts, confidence, coverage statistics, and value shapes are persisted. Source samples exist transiently during detection. A small allowlist preserves structural JSON keys such as `contact` and `email`; other keys become keyed opaque path tokens because JSON keys can themselves contain personal data. Array indices collapse to `[*]`. Unknown keys can still be checked for PII without retaining their original text.
+
+For each scalar column the scan also stores, in `sanitized_evidence.shapes`, the three most common **value shapes** with their row counts. A shape is the form of a value with every letter and digit replaced by its class (`a`, `A`, `9`), a few punctuation marks kept, everything else written `?`, and runs collapsed: `customer12@example.com` is stored as `a+9+@a+.a+`. It holds no character of the value. Shapes are computed from the rows already sampled, add no query, and are not computed for JSON documents or unread types; values made only of punctuation are left out, and results from earlier scans simply lack the key. The definition, bounds, and the tests behind the privacy claim are in [value shapes](classification.md#value-shapes).
 
 ## Worker operation
 

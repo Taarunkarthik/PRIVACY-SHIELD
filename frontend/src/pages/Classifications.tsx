@@ -5,8 +5,8 @@ import { AlertTriangle, ArrowRight, Bot, ChevronLeft, ChevronRight, RefreshCw, S
 import { api } from '../api/client';
 import { useAuth } from '../api/auth';
 import type { ScanJob, ScanPage } from '../api/scans';
-import { activeClassification, activeClassificationPage, classificationError, classificationFailure, classificationStatus } from '../api/classifications';
-import type { ClassificationJob, ClassificationJobPage } from '../api/classifications';
+import { activeClassification, activeClassificationPage, classificationError, classificationFailure, classificationStatus, launchError as describeLaunchError, nothingForModel, summarySentences } from '../api/classifications';
+import type { ClassificationJob, ClassificationJobPage, ClassificationSummary } from '../api/classifications';
 import { usePollingResource } from '../api/usePollingResource';
 import { ClassificationResults } from '../components/ClassificationResults';
 import { ClassificationSelection } from '../components/ClassificationSelection';
@@ -28,6 +28,9 @@ export function Classifications() {
   const scan = scanResource.data;
   const completedScan = scan?.status === 'COMPLETED' ? scan : null;
   const selectedIds = selection.scanId === scanId ? selection.ids : [];
+  // Counts behind the default selection: columns the detectors decided are skipped, the rest go to the model.
+  const summary = usePollingResource<ClassificationSummary>(completedScan && canClassify ? `/scans/${encodeURIComponent(scanId)}/classification-summary` : null, revision, undefined, classificationError).data;
+  const nothingToSend = selectionMode === 'default' && summary?.will_classify === 0;
   const history = usePollingResource<ClassificationJobPage>(completedScan ? `/classification-jobs?scan_id=${encodeURIComponent(scanId)}&page=${historyPage}&page_size=10` : null, revision, activeClassificationPage, classificationError);
   const selectedJobId = params.get('job') || history.data?.items[0]?.id || '';
   const selected = usePollingResource<ClassificationJob>(completedScan && selectedJobId ? `/classification-jobs/${encodeURIComponent(selectedJobId)}` : null, revision, activeClassification, classificationError);
@@ -38,6 +41,7 @@ export function Classifications() {
     event.preventDefault();
     if (!user || !canClassify || !completedScan || launching) return;
     if (selectionMode === 'custom' && (!selectedIds.length || selectedIds.length > 50)) { setLaunchError('Choose between 1 and 50 findings, or use the default whole-column selection.'); return; }
+    if (nothingToSend) { setLaunchError(nothingForModel(summary)); return; }
     setLaunching(true);
     setLaunchError('');
     try {
@@ -45,7 +49,7 @@ export function Classifications() {
       setParams({ scan: scanId, job: created.id });
       setHistoryPage(1);
       setRevision((value) => value + 1);
-    } catch (reason) { setLaunchError(classificationError(reason)); }
+    } catch (reason) { setLaunchError(describeLaunchError(reason, selectionMode, summary)); }
     finally { setLaunching(false); }
   }
 
@@ -60,9 +64,10 @@ export function Classifications() {
       </select></div>
       {scans.data && scans.data.total > 50 && <div className="pagination scan-choice-pages"><span>Completed scans page {scanPage} of {Math.ceil(scans.data.total / 50)}</span><div><button type="button" className="button secondary" disabled={scanPage === 1 || launching || scans.loading} onClick={() => setScanPage(scanPage - 1)}><ChevronLeft size={13} /> Previous</button><button type="button" className="button secondary" disabled={scanPage * 50 >= scans.data.total || launching || scans.loading} onClick={() => setScanPage(scanPage + 1)}>Next <ChevronRight size={13} /></button></div></div>}
       {completedScan && canClassify && <>
-        <fieldset className="classification-mode" disabled={launching}><legend>Choose evidence to classify</legend><label><input type="radio" name="classification-mode" checked={selectionMode === 'default'} onChange={() => setSelectionMode('default')} /><span>Whole columns <small>Up to 50 whole-column findings, including samples with no matches.</small></span></label><label><input type="radio" name="classification-mode" checked={selectionMode === 'custom'} onChange={() => setSelectionMode('custom')} /><span>Choose findings <small>Select specific columns or JSON paths, up to 50 per job.</small></span></label></fieldset>
+        <fieldset className="classification-mode" disabled={launching}><legend>Choose evidence to classify</legend><label><input type="radio" name="classification-mode" checked={selectionMode === 'default'} onChange={() => { setSelectionMode('default'); setLaunchError(''); }} /><span>Whole columns <small>Up to 50 whole columns the detectors did not settle, including samples with no matches.</small></span></label><label><input type="radio" name="classification-mode" checked={selectionMode === 'custom'} onChange={() => { setSelectionMode('custom'); setLaunchError(''); }} /><span>Choose findings <small>Select specific columns or JSON paths, up to 50 per job.</small></span></label></fieldset>
         {selectionMode === 'custom' && <ClassificationSelection key={scanId} scanId={scanId} selected={selectedIds} onChange={(ids) => setSelection({ scanId, ids })} disabled={launching} />}
-        <div className="classification-launch-action"><p>Each finding is reviewed separately. Large selections can take several minutes.</p><button type="submit" className="button primary" disabled={launching || (selectionMode === 'custom' && !selectedIds.length)}><Bot size={16} />{launching ? 'Starting…' : 'Request classification'}</button></div>
+        {selectionMode === 'default' && summary && <p className="role-note" role="status" aria-label="What will be classified">{summarySentences(summary).join(' ')}</p>}
+        <div className="classification-launch-action"><p>Each finding is reviewed separately. Large selections can take several minutes.</p><button type="submit" className="button primary" disabled={launching || (selectionMode === 'custom' && !selectedIds.length) || nothingToSend}><Bot size={16} />{launching ? 'Starting…' : 'Request classification'}</button></div>
       </>}
       {!canClassify && <p className="role-note">Your account can review recommendations. An administrator or analyst can request classification.</p>}
       {scan && !completedScan && <p className="role-note">This scan has not completed. Classification requires completed scan findings.</p>}
