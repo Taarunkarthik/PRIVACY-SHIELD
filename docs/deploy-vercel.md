@@ -1,12 +1,14 @@
-# Deploying PrivacyShield on Vercel (experimental)
+# Deploying PrivacyShield on Vercel
 
-> **Status: experimental and unverified.** Nothing on this page has been run on
-> Vercel. The image is the one used for the single-service deployment
-> ([deploy-render.md](deploy-render.md)), with a small start wrapper for
-> Vercel's environment. The wrapper is tested against a real PostgreSQL server;
-> Vercel's container runtime, its lifecycle and a Neon database are not part of
-> any test here. Treat the first deploy as the test. The supported hosted route
-> is still [Render](deploy-render.md).
+> **Status: deployed once and working, on a beta platform feature.** On
+> 11 October 2026 this was deployed at
+> [privacy-shield-gamma.vercel.app](https://privacy-shield-gamma.vercel.app)
+> with a Neon database from the Vercel Marketplace. The site answered its
+> readiness check with the database and the job runner both `ok`, and the
+> project owner signed in, ran a scan to completion, deployed a masking policy
+> and verified the audit chain as intact. That is one deployment used by one
+> person for a few minutes: see [what was checked](#what-was-checked-and-what-was-not)
+> for what it does and does not show. Vercel's container runtime is in beta.
 
 Vercel can run a container image as a function (the "Container Runtime", in
 beta on all plans). It detects `Dockerfile.vercel` in the repository root,
@@ -16,8 +18,7 @@ with a Postgres database added from the Vercel Marketplace (Neon).
 
 ## What is different from a normal server
 
-These follow from how Vercel runs containers, and they are why this route is
-experimental:
+These follow from how Vercel runs containers:
 
 - **The container is stopped after 5 minutes without requests** (30 seconds for
   preview deployments). The next visit starts a new one, which first checks
@@ -29,8 +30,9 @@ experimental:
   background work. While the page is open it polls for progress, which counts
   as traffic and keeps the container up, so a scan should finish. If the
   container is stopped mid-job, the job row stays in the database and is run
-  again when the next container starts. **Whether jobs complete reliably on
-  Vercel is the main thing a first deploy has to show.**
+  again when the next container starts. In the first deployment a scan and a
+  policy deployment both completed with the page open. What happens to a job
+  when the page is closed, or under repeated use, has not been tried.
 - **Use the production deployment.** Preview deployments stop after 30 seconds
   idle, which is shorter than a scan.
 - **AI classification is not available** (no Ollama server), as on Render.
@@ -43,14 +45,26 @@ All in the Vercel dashboard. The code must already be on the repository's
 default branch, `dev/privacyshield`.
 
 1. **Import the repository.** *Add New…* → *Project* → import
-   `PRIVACY-SHIELD`. Framework Preset: **Other**. Root Directory: leave as it
-   is. Do not deploy yet if the page lets you add variables first; otherwise
-   let the first deploy fail and continue.
+   `PRIVACY-SHIELD`. Root Directory: leave it as `./`.
+
+   Vercel reads the repository layout and proposes **Services** with three
+   entries: `backend` (FastAPI), `frontend` (Vite) and `privacy-shield`
+   (Container). Do not accept that. PrivacyShield is the one container; the
+   proposed split would send `/api` to a bare FastAPI function with no
+   database setup and no job runner. Change **Application Preset** away from
+   *Services* so that only the root container is deployed (*Container*, or
+   *Other* if that is what the list offers). No `vercel.json` is needed.
+
+   Add the variables from step 3 on this screen if it lets you, then deploy.
+   This first deploy builds the image but cannot start, because a database can
+   only be attached once the project exists.
 2. **Add the database.** In the project open **Storage** → *Create Database* →
    **Neon** (Postgres) → plan **Free** → region **Washington, D.C. (iad1)**,
    which is where Vercel runs functions by default. A database in another
    region makes every start slow. Connect it to this project for the
-   Production environment.
+   Production environment. The connect form requires a **Custom Prefix** for
+   the variables it adds; any value works (`DATABASE` gives the usual names).
+   Leave "Create database branch for deployment" unticked.
 3. **Add four variables.** *Settings* → *Environment Variables*, for
    Production:
 
@@ -94,11 +108,11 @@ INFO Serving frontend from /app/static, jobs run in-process, listening on 0.0.0.
 | --- | --- | --- |
 | `ERROR Startup stopped: no database is connected` | The Neon database is not connected to this project and environment | Storage → the database → Connect Project, then redeploy |
 | `ERROR Startup stopped: only a pooled database URL was found` | The integration did not provide a direct connection string | Add `CONTROL_ADMIN_URL` with the database's direct (unpooled) connection string from the Neon console |
-| `Bootstrap failed: ...` followed by a permission error | Neon does not allow a statement the bootstrap needs. This is one of the untested parts | Send the line; it names the statement |
+| `Bootstrap failed: ...` followed by a permission error | The database user may not do something the bootstrap needs. It worked on the Neon database of the first deployment | The line names the statement |
 | `WARNING PORT is not set` and then a permission error | The server tried port 80 as a non-root user | Add `PORT=10000` and redeploy |
 | Every page is a `502` or `504` | The container did not start listening in time, or on the wrong port | Check `PORT`, then look for the last `INFO` line to see how far startup got |
 | Sign-in answers `Origin is not allowed` | You are on a custom domain | Add `FRONTEND_ORIGIN` with that `https://` address |
-| A scan stays `Queued` or `Running` for minutes | The container's background work is being paused or stopped | This is the known risk above. Use Render for jobs |
+| A scan stays `Queued` or `Running` for minutes | The container's background work is being paused or stopped | Keep the page open and wait for the next container start to pick the job up again. If it keeps happening, use Render for jobs |
 
 ## What was checked, and what was not
 
@@ -113,14 +127,29 @@ Checked here, on PostgreSQL 16 with a restricted (non-superuser) admin:
   an administrator in from both Vercel addresses, and refuses another origin;
 - `Dockerfile.vercel` has exactly the build steps of `Dockerfile`.
 
+Seen on Vercel, 11 October 2026, on the deployment named at the top (built from
+`dev/privacyshield` at `89a5663`):
+
+- Vercel built `Dockerfile.vercel` and the container started;
+- from outside, `GET /api/v1/health/ready` returned
+  `{"status":"ok","checks":{"database":"ok","redis":"not_used","jobs":"ok"}}`.
+  That requires the bootstrap to have created the roles and the second
+  database on Neon and the migrations to have run;
+- reported by the project owner, not observed independently: signing in, a
+  scan reaching Completed, a masking policy deployed, and the audit chain
+  verified as Intact.
+
 Not checked:
 
-- building or running the image on Vercel;
-- Neon: whether its database owner may do everything the bootstrap does
-  (create the roles and the second database, change owners, set role
-  options), whether the direct endpoint accepts the connection options the
-  application sends, and its PostgreSQL version (this build was tested on 16
-  only);
-- how long a cold start takes there, and whether it is within what Vercel
-  allows;
+- anything beyond that one short session: repeated use, several people at
+  once, a job running when the page is closed or when the container is
+  stopped after five idle minutes;
+- how long a cold start takes there;
+- which PostgreSQL version and region that Neon database has (this build is
+  otherwise tested on 16 only);
+- the automatic discovery of the database variables on Vercel. That
+  deployment was built before the start script learned to read prefixed
+  variable names, and was set up by giving `CONTROL_ADMIN_URL` by hand (those
+  were the steps followed; the project's settings were not inspected). The
+  discovery is covered by the tests above only;
 - whether background jobs keep running between requests.

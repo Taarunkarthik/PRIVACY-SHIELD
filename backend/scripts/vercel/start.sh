@@ -16,8 +16,10 @@
 #   4. Port: Vercel routes to the port named by the PORT project variable, or
 #      to 80 when there is none.
 #
-# Status: EXPERIMENTAL. Nothing here has been run on Vercel. See
-# docs/deploy-vercel.md for what is known and what is not.
+# Status: an earlier version of this script started one working deployment on
+# Vercel (11 October 2026), set up by giving CONTROL_ADMIN_URL by hand. Finding
+# the database from prefixed variable names has only been run in the tests.
+# See docs/deploy-vercel.md for what is known and what is not.
 set -eu
 
 fail() {

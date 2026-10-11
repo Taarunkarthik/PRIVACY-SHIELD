@@ -46,9 +46,10 @@ the free plan: one web service that serves the API, the frontend and the
 background jobs from the repository-root `Dockerfile`, and one Postgres
 instance. It needs no Redis and no worker. The earlier multi-service layout,
 which needs paid plans, is kept as `render.paid.yaml`. See
-[Deploying on Render](docs/deploy-render.md). An experimental `Dockerfile.vercel` for Vercel's
-container runtime is described in [Deploying on Vercel](docs/deploy-vercel.md);
-it has not been run there.
+[Deploying on Render](docs/deploy-render.md). The same image also runs on Vercel's container runtime
+(beta) from `Dockerfile.vercel` with a Neon database; see
+[Deploying on Vercel](docs/deploy-vercel.md). A deployment made on 11 October 2026
+is at [privacy-shield-gamma.vercel.app](https://privacy-shield-gamma.vercel.app).
 
 **Windows storage:** use Docker Desktop's supported storage controls to locate Linux disk images and named volumes on D: before the first build. Preserve existing Docker data. Do not move, delete, or unregister Docker/WSL distributions manually. See [operations and troubleshooting](docs/operations.md).
 
@@ -107,7 +108,7 @@ The backend is a FastAPI modular monolith shared by API and Celery processes. A 
 - [Audit hash chain: what it detects and what it cannot](docs/audit-chain.md)
 - [Detection accuracy: measured precision, recall and known false positives](docs/detection-accuracy.md)
 - [Deploying on Render](docs/deploy-render.md)
-- [Deploying on Vercel (experimental, unverified)](docs/deploy-vercel.md)
+- [Deploying on Vercel: steps, and what one working deployment does and does not show](docs/deploy-vercel.md)
 - [Render deployment verification](docs/verification-render.md)
 - [Setup, testing, demo, and troubleshooting](docs/operations.md)
 - [Phase 1 verification evidence and limitations](docs/verification.md)

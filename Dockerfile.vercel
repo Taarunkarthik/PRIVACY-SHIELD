@@ -7,8 +7,8 @@
 # start command adapts Vercel's environment (scripts/vercel/start.sh) and the
 # home directory is somewhere writable.
 #
-# Status: EXPERIMENTAL. This image has not been built or run on Vercel.
-# See docs/deploy-vercel.md.
+# Status: built and run on Vercel once (11 October 2026), on a beta feature of
+# the platform. docs/deploy-vercel.md says what that showed and what it did not.
 
 # ---- frontend: the same build as frontend/Dockerfile
 FROM node:24.14.1-alpine3.23 AS frontend

@@ -120,9 +120,11 @@ the same check was repeated here on 1.7 million values after the last change.
 
 ## Not verified
 
-- **The all-in-one Docker image has not been built.** The `image` job in
+- **The all-in-one Docker image was not built here**, where there is no Docker.
+  It has since been built elsewhere: the `image` job in
   `.github/workflows/ci.yml` builds it and runs `scripts/check_hosted.py`
-  against it. Its first run on GitHub is the check.
+  against it, and [run 38130267960](https://github.com/Taarunkarthik/PRIVACY-SHIELD/actions/runs/38130267960)
+  on `dev/privacyshield` passed. Vercel also built it (below).
 - **Nothing has run on Render.** The bootstrap was run against a PostgreSQL 16
   server with the kind of restricted admin user Render provides, not against
   Render itself.
@@ -131,10 +133,12 @@ the same check was repeated here on 1.7 million values after the last change.
   model answers worse with them, set `AI_SEND_SHAPES=false`. The two smoke
   commands are in [classification.md](classification.md).
 - **PostgreSQL 17 and 18** were not tested; the hosted database is pinned to 16.
-- **Vercel.** `Dockerfile.vercel` and its start wrapper are experimental. The
-  wrapper is tested against a real PostgreSQL server, but nothing has been
-  built or run on Vercel or on a Neon database. See
-  [deploy-vercel.md](deploy-vercel.md).
+- **Vercel** was not part of any test here. After this record was first
+  written the project owner deployed it there with a Neon database, and it
+  works: the readiness check answered `ok` from outside, and the owner reports
+  a completed scan, a deployed policy and an intact audit chain. That is one
+  short session on a beta platform feature;
+  [deploy-vercel.md](deploy-vercel.md) lists what it does not show.
 - **Docker Compose** was not started with this build. The Compose images are
   unchanged apart from the code they contain.
 
