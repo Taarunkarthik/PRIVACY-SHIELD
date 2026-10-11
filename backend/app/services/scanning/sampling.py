@@ -1,4 +1,8 @@
-"""Memory-bounded source sampling; only counts and coverage leave this module."""
+"""Memory-bounded source sampling.
+
+Only counts, coverage and value shapes leave this module. A shape describes the
+form of a value and holds none of its characters (see ``shapes.py``).
+"""
 
 import hashlib
 import hmac
@@ -10,6 +14,7 @@ from psycopg import sql
 from psycopg.rows import tuple_row
 
 from app.core.config import get_settings
+from app.services.scanning.shapes import ShapeCounter
 
 MAX_CELL_CHARS = 4096
 MAX_CELL_BYTES = 16384
@@ -294,6 +299,12 @@ def sample_table(
         )
         sampled_rows = 0
         values_read = [0] * len(group)
+        # Scalar columns only. A JSON document has no single form, and its text
+        # would spell out keys that can themselves be personal data.
+        shapes = [
+            None if column["is_jsonb"] or column["udt_name"] not in TEXT_TYPES else ShapeCounter()
+            for column in group
+        ]
         with target.cursor(name="ps_scan_" + uuid.uuid4().hex, row_factory=tuple_row) as cursor:
             cursor.execute(query, (sample_limit,))
             while batch := cursor.fetchmany(ROW_BATCH_SIZE):
@@ -309,6 +320,8 @@ def sample_table(
                         values_read[index] += 1
                         if not column["is_jsonb"]:
                             aggregates[index][""].add_row(detector(value, column["name"]))
+                            if shapes[index] is not None:
+                                shapes[index].add(value)
                             continue
                         try:
                             leaves, bounded = json_leaves(json.loads(value))
@@ -337,6 +350,18 @@ def sample_table(
                             aggregates[index][path].add_row(matches)
         for index, column in enumerate(group):
             for path, findings in aggregates[index].items():
+                evidence = {
+                    "labels": sorted(findings.category_counts),
+                    "coverage": coverage[index].copy(),
+                    # Non-null values the detector actually received. Zero
+                    # means "nothing found" says nothing about the column.
+                    "values_read": values_read[index],
+                }
+                if shapes[index] is not None:
+                    # The most common value forms with row counts; a form holds
+                    # no character of any value. Absent for JSON and for types
+                    # that are not read, and absent in scans stored earlier.
+                    evidence["shapes"] = shapes[index].top()
                 yield {
                     "schema_name": table["schema"],
                     "table_name": table["name"],
@@ -346,11 +371,5 @@ def sample_table(
                     "matching_rows": findings.matching_rows,
                     "confidence": findings.confidence,
                     "category_counts": findings.category_counts,
-                    "sanitized_evidence": {
-                        "labels": sorted(findings.category_counts),
-                        "coverage": coverage[index].copy(),
-                        # Non-null values the detector actually received. Zero
-                        # means "nothing found" says nothing about the column.
-                        "values_read": values_read[index],
-                    },
+                    "sanitized_evidence": evidence,
                 }

@@ -17,6 +17,19 @@ class ClassificationCreate(BaseModel):
         return values
 
 
+class ClassificationSummary(BaseModel):
+    """How the detectors left the whole-column results of one completed scan."""
+
+    scan_id: UUID
+    whole_columns: int
+    decided: int
+    uncertain: int
+    not_classifiable: int
+    selection_limit: int
+    # Columns a request without an explicit selection would send to the model.
+    will_classify: int
+
+
 class ClassificationJobResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: UUID
