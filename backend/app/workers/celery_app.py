@@ -40,6 +40,7 @@ celery_app.conf.update(
             "task": "privacyshield.dispatch_deployments",
             "schedule": 15.0,
         },
+        "seal-audit-chain": {"task": "privacyshield.seal_audit_chain", "schedule": 15.0},
     },
 )
 
@@ -114,3 +115,18 @@ def dispatch_deployments() -> None:
     from app.services.policies.jobs import dispatch_deployments
 
     dispatch_deployments()
+
+
+@celery_app.task(name="privacyshield.seal_audit_chain", ignore_result=True)
+def seal_audit_chain() -> None:
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from app.services.audit_chain import seal_audit_chain as seal
+
+    try:
+        seal()
+    except SQLAlchemyError:
+        # Unsealed events stay unsealed and are picked up by the next run.
+        logging.getLogger("privacyshield").error(
+            "Audit chain sealing interrupted; retried on the next run"
+        )

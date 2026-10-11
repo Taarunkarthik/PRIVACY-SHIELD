@@ -1,6 +1,9 @@
-import { useEffect, useState } from 'react';
-import { ChevronLeft, ChevronRight, FileClock, RefreshCw } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Check, ChevronLeft, ChevronRight, Copy, FileClock, RefreshCw, ShieldCheck, X } from 'lucide-react';
 import { api, ApiError } from '../api/client';
+import { useAuth } from '../api/auth';
+import { auditChainReasonText, shortHash } from '../api/auditChain';
+import type { AuditChainVerification } from '../api/auditChain';
 import type { AuditEventPage } from '../api/policies';
 
 const SUBJECT_TYPES: Array<{ value: string; label: string }> = [
@@ -19,6 +22,84 @@ function toIso(value: string) {
   if (!value) return '';
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? '' : parsed.toISOString();
+}
+
+// The status icon shares a flex row with wrapping text; this keeps it from being squeezed.
+const ICON = { flexShrink: 0 };
+
+// Recomputes the hash chain on request only: it reads the whole log, so it never runs on page load.
+function LogIntegrity() {
+  const { user } = useAuth();
+  const canVerify = user?.role === 'ADMIN' || user?.role === 'AUDITOR';
+  const [result, setResult] = useState<AuditChainVerification | null>(null);
+  const [verifying, setVerifying] = useState(false);
+  const [error, setError] = useState('');
+  const [copied, setCopied] = useState<'copied' | 'manual' | ''>('');
+  const request = useRef<AbortController | null>(null);
+
+  useEffect(() => () => request.current?.abort(), []);
+
+  async function verify() {
+    const controller = new AbortController();
+    request.current?.abort();
+    request.current = controller;
+    setVerifying(true);
+    setError('');
+    setCopied('');
+    try {
+      const value = await api<AuditChainVerification>('/audit-events/verify', { signal: controller.signal });
+      if (!controller.signal.aborted) setResult(value);
+    } catch (reason) {
+      if (controller.signal.aborted) return;
+      // A stale "intact" must not stay on screen after a check that did not complete.
+      setResult(null);
+      setError(reason instanceof ApiError && reason.status === 403
+        ? 'Only an administrator or auditor can verify the log.'
+        : 'The log could not be verified. Nothing is known about its integrity until a check completes.');
+    } finally {
+      if (!controller.signal.aborted) setVerifying(false);
+    }
+  }
+
+  async function copyHead(hash: string) {
+    try {
+      await navigator.clipboard.writeText(hash);
+      setCopied('copied');
+    } catch {
+      // Without clipboard access the full value is shown so it can be selected by hand.
+      setCopied('manual');
+    }
+  }
+
+  const broken = result?.status === 'BROKEN';
+  return <>
+    {error && <div className="error-box" role="alert">{error}</div>}
+    <section className="panel settings-panel" aria-label="Log integrity">
+      <div className="panel-heading">
+        <div>
+          <h2>Log integrity {result && <span className={`pill small ${broken ? 'status-rejected' : 'status-approved'}`}>{broken ? 'Broken' : 'Intact'}</span>}</h2>
+          <p>{canVerify
+            ? 'Each audit event is sealed into a hash chain. Verifying recomputes every hash from the stored events.'
+            : 'An administrator or auditor can verify that sealed audit events have not been changed.'}</p>
+        </div>
+        {canVerify && <button className="button secondary" onClick={verify} disabled={verifying}><ShieldCheck size={15} style={ICON} /> {verifying ? 'Verifying…' : 'Verify log integrity'}</button>}
+      </div>
+      {result && <ul className="access-facts" aria-label="Verification result">
+        {broken
+          ? <li className="access-bad"><X size={14} style={ICON} /><span role="alert">Broken at position {result.broken_index?.toLocaleString()}. {result.reason ? auditChainReasonText[result.reason] : ''} Entries before this position still verify. Entries from it onward cannot be relied on.</span></li>
+          : <li className="access-ok"><Check size={14} style={ICON} /><span role="status">{result.sealed
+            ? 'Intact. Every sealed event still matches the hash recorded when it was sealed.'
+            : 'Intact. No events have been sealed yet.'}</span></li>}
+        <li><span>Sealed events: <strong>{result.sealed.toLocaleString()}</strong></span></li>
+        <li><span>Not yet sealed: <strong>{result.pending.toLocaleString()}</strong>{result.pending > 0 && ' (recorded moments ago, sealed automatically, and not covered by this check)'}</span></li>
+        {result.head_hash && <li>
+          <span>Head of the chain: position <strong>{result.head_index.toLocaleString()}</strong>, hash <code title={result.head_hash}>{copied === 'manual' ? result.head_hash : shortHash(result.head_hash)}</code> <button type="button" className="text-link" onClick={() => copyHead(result.head_hash ?? '')}><Copy size={12} /> {copied === 'copied' ? 'Copied' : 'Copy head hash'}</button></span>
+        </li>}
+        {result.head_hash && <li className="muted"><span>Keep the head position and hash somewhere outside this system. Removal of the newest entries, or a chain rebuilt after a change, can only be detected by comparing against a saved head.</span></li>}
+        <li className="muted"><span>Checked {new Date(result.verified_at).toLocaleString()}</span></li>
+      </ul>}
+    </section>
+  </>;
 }
 
 export function AuditLogs() {
@@ -97,6 +178,7 @@ export function AuditLogs() {
       </div>
     </div>
     {(error || rangeInvalid) && <div className="error-box" role="alert">{rangeInvalid ? 'Choose a start time that is earlier than the end time.' : error}</div>}
+    <LogIntegrity />
     <section className="panel" aria-label="Audit events">
       <div className="panel-heading"><div><h2>Activity timeline <span className="count-badge">{events?.total ?? '—'}</span></h2><p>A chronological record of workspace activity.</p></div><FileClock size={19} className="muted" /></div>
       {rangeInvalid ? <div className="data-empty"><FileClock size={34} strokeWidth={1.3} /><h3>Adjust the time window</h3><p>The start of the window must be earlier than the end.</p></div>

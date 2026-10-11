@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     CheckConstraint,
     DateTime,
@@ -333,6 +334,24 @@ class AuditEvent(Entity, Base):
 
 
 Index("ix_audit_events_created_at", AuditEvent.created_at)
+
+
+class AuditChain(Base):
+    """Insert-only hash chain over audit events; see app/services/audit_chain.py."""
+
+    __tablename__ = "audit_chain"
+    __table_args__ = (
+        CheckConstraint("chain_index >= 1", name="positive_index"),
+        CheckConstraint("prev_hash ~ '^[0-9a-f]{64}$'", name="valid_prev_hash"),
+        CheckConstraint("row_hash ~ '^[0-9a-f]{64}$'", name="valid_row_hash"),
+    )
+
+    # Assigned by the sealer under its lock so indices stay dense; never a sequence.
+    chain_index: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
+    event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("audit_events.id"), unique=True)
+    prev_hash: Mapped[str] = mapped_column(String(64))
+    row_hash: Mapped[str] = mapped_column(String(64))
+    sealed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class AppSettings(Entity, Base):

@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.api.dependencies import current_user, require_roles
 from app.core.database import get_db
 from app.models import User
+from app.schemas.audit_chain import AuditChainVerification
 from app.schemas.policies import (
     AuditEventPage,
     DeploymentPage,
@@ -20,6 +21,7 @@ from app.schemas.policies import (
     PolicySuggestions,
     ProtectedOutput,
 )
+from app.services.audit_chain import verify_audit_chain
 from app.services.policies.preview import illustrative_samples, protected_output
 from app.services.policies.service import (
     PolicyFailure,
@@ -234,6 +236,26 @@ def get_deployments(
 ) -> DeploymentPage:
     items, total = list_deployments(db, page=page, page_size=page_size)
     return DeploymentPage(items=items, total=total, page=page, page_size=page_size)
+
+
+# Declared before every other /audit-events route so that a parameterised path
+# added later (for example /audit-events/{event_id}) cannot capture "verify".
+@router.get("/audit-events/verify", response_model=AuditChainVerification)
+def verify_audit_events(
+    anchor_index: int | None = Query(default=None, ge=1),
+    anchor_hash: str | None = Query(default=None, pattern="^[0-9a-fA-F]{64}$"),
+    user: User = Depends(require_roles("ADMIN", "AUDITOR")),
+) -> AuditChainVerification:
+    """Seal pending events, then recompute the audit hash chain.
+
+    Deliberately not recorded as an audit event: that would append to the log
+    being measured, so two checks of an idle log would report different heads.
+    """
+    if (anchor_index is None) != (anchor_hash is None):
+        raise HTTPException(422, "anchor_index and anchor_hash must be given together")
+    return AuditChainVerification.model_validate(
+        verify_audit_chain(anchor_index=anchor_index, anchor_hash=anchor_hash)
+    )
 
 
 @router.get("/audit-events", response_model=AuditEventPage)
