@@ -46,7 +46,9 @@ the free plan: one web service that serves the API, the frontend and the
 background jobs from the repository-root `Dockerfile`, and one Postgres
 instance. It needs no Redis and no worker. The earlier multi-service layout,
 which needs paid plans, is kept as `render.paid.yaml`. See
-[Deploying on Render](docs/deploy-render.md).
+[Deploying on Render](docs/deploy-render.md). An experimental `Dockerfile.vercel` for Vercel's
+container runtime is described in [Deploying on Vercel](docs/deploy-vercel.md);
+it has not been run there.
 
 **Windows storage:** use Docker Desktop's supported storage controls to locate Linux disk images and named volumes on D: before the first build. Preserve existing Docker data. Do not move, delete, or unregister Docker/WSL distributions manually. See [operations and troubleshooting](docs/operations.md).
 
@@ -105,6 +107,7 @@ The backend is a FastAPI modular monolith shared by API and Celery processes. A 
 - [Audit hash chain: what it detects and what it cannot](docs/audit-chain.md)
 - [Detection accuracy: measured precision, recall and known false positives](docs/detection-accuracy.md)
 - [Deploying on Render](docs/deploy-render.md)
+- [Deploying on Vercel (experimental, unverified)](docs/deploy-vercel.md)
 - [Render deployment verification](docs/verification-render.md)
 - [Setup, testing, demo, and troubleshooting](docs/operations.md)
 - [Phase 1 verification evidence and limitations](docs/verification.md)
