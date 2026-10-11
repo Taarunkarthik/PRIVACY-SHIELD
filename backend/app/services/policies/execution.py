@@ -18,7 +18,13 @@ from app.core.database import session_factory
 from app.core.security import decrypt_credential
 from app.models import DatabaseConnection, MaskingPolicy, PolicyDeployment
 from app.services.discovery.catalog import DiscoveryError, validate_target_host
-from app.services.policies.compiler import VIEW_OWNER_ROLE, VIEW_READER_ROLE, quote_ident
+from app.services.policies.compiler import (
+    AUDIENCE_ROLES,
+    VIEW_OWNER_ROLE,
+    CompiledPlan,
+    quote_ident,
+    view_name_for,
+)
 from app.services.policies.jobs import complete_deployment, fail_deployment
 from app.services.policies.service import ACTIVE_DEPLOYMENT_STATES, PolicyFailure, build_plan
 from app.services.scanning.jobs import scan_lock
@@ -74,6 +80,18 @@ def read_access(target, role: str, schema: str, relation: str) -> bool | None:
         {"role": role, "schema": schema, "relation": relation},
     ).fetchone()
     return None if row is None else bool(row["readable"])
+
+
+def existing_audience_roles(target) -> set[str]:
+    """The audience roles that exist in the target database.
+
+    A database initialised before audiences existed has only the reader role.
+    """
+    rows = target.execute(
+        "SELECT rolname FROM pg_catalog.pg_roles WHERE rolname = ANY(%s)",
+        (list(AUDIENCE_ROLES.values()),),
+    ).fetchall()
+    return {row["rolname"] for row in rows}
 
 
 def run_deployment(deployment_id: UUID) -> None:
@@ -136,6 +154,10 @@ def _run_deployment_locked(deployment_id: UUID) -> None:
         {
             "view_schema": plan.view_schema,
             "view_name": plan.view_name,
+            # Every audience that has a view after this deployment. An audience
+            # not listed has none: a view left by an earlier version was dropped.
+            "audiences": plan.audiences,
+            "audience_views": {view.audience: view.view_name for view in plan.views},
             "plan_hash": plan.plan_hash,
             "deployed_at": datetime.now(UTC).isoformat(),
             "reconciled": reconciled,
@@ -144,7 +166,9 @@ def _run_deployment_locked(deployment_id: UUID) -> None:
     )
 
 
-def _execute_target(deployment_id: UUID, connection: DatabaseConnection, plan) -> bool:
+def _execute_target(
+    deployment_id: UUID, connection: DatabaseConnection, plan: CompiledPlan
+) -> bool:
     """Apply the compiled plan in one target transaction; return True if reconciled."""
     with deployer_session(connection) as target, target.transaction():
         target.execute(f"SET LOCAL ROLE {quote_ident(VIEW_OWNER_ROLE)}")
@@ -163,12 +187,38 @@ def _execute_target(deployment_id: UUID, connection: DatabaseConnection, plan) -
             if existing["plan_hash"] != plan.plan_hash:
                 raise DeploymentTargetError("RECEIPT_CONFLICT")
             return True  # Already applied: idempotent success.
-        view = f"{quote_ident(plan.view_schema)}.{quote_ident(plan.view_name)}"
-        for statement in plan.statements:
+
+        # Every audience this policy has a view for needs its role. Checked
+        # before any change, so a database without the role gets nothing.
+        present = existing_audience_roles(target)
+        if any(view.role not in present for view in plan.views):
+            raise DeploymentTargetError("AUDIENCE_ROLE_MISSING")
+
+        # One audience at a time, always in the same order, so two deployments
+        # for one table take their locks in the same sequence.
+        for audience in AUDIENCE_ROLES:
+            audience_view = plan.view_for(audience)
+            name = (
+                audience_view.view_name
+                if audience_view is not None
+                else view_name_for(plan.source_schema, plan.source_table, audience)
+            )
+            view = f"{quote_ident(plan.view_schema)}.{quote_ident(name)}"
+            if audience_view is None:
+                # This version has no view for the audience, so the view an
+                # earlier version gave it must go: it would outlive its policy.
+                try:
+                    with target.transaction():
+                        target.execute(f"DROP VIEW IF EXISTS {view}")
+                except psycopg.errors.DependentObjectsStillExist:
+                    # Something else was built on the view. Dropping that too
+                    # is not ours to decide, so nothing is deployed.
+                    raise DeploymentTargetError("AUDIENCE_VIEW_IN_USE") from None
+                continue
             try:
                 # A savepoint, so a refused replacement does not abort the deployment.
                 with target.transaction():
-                    target.execute(statement)
+                    target.execute(audience_view.sql)
             except psycopg.errors.InvalidTableDefinition:
                 # CREATE OR REPLACE VIEW cannot change an existing column's type,
                 # which happens when a newer version masks a column that an older
@@ -176,18 +226,31 @@ def _execute_target(deployment_id: UUID, connection: DatabaseConnection, plan) -
                 # so readers never see it missing, and DROP without CASCADE still
                 # refuses if anything else depends on the view.
                 target.execute(f"DROP VIEW {view}")
-                target.execute(statement)
-        # The reader sees only approved views; grant is idempotent.
-        target.execute(f"GRANT SELECT ON {view} TO {quote_ident(VIEW_READER_ROLE)}")
-        # Verify the resulting access before committing: the reader must reach
-        # the masked view and must have no path to the unmasked source table.
-        # A failure here rolls the view back with the rest of the transaction.
-        for schema, relation, expected in (
-            (plan.view_schema, plan.view_name, True),
-            (plan.source_schema, plan.source_table, False),
-        ):
-            if read_access(target, VIEW_READER_ROLE, schema, relation) is not expected:
+                target.execute(audience_view.sql)
+            # Each audience role sees only its own approved view. Both
+            # statements are idempotent.
+            others = sorted(present - {audience_view.role})
+            if others:
+                target.execute(
+                    f"REVOKE ALL ON {view} FROM {', '.join(quote_ident(role) for role in others)}"
+                )
+            target.execute(f"GRANT SELECT ON {view} TO {quote_ident(audience_view.role)}")
+
+        # Verify the resulting access before committing. Every audience role
+        # that exists must have no path to the unmasked source table and must
+        # read its own view of this table and no other audience's. That holds
+        # for an audience without a view too: it reads nothing. A failure here
+        # rolls every view back with the rest of the transaction.
+        for audience, role in AUDIENCE_ROLES.items():
+            if role not in present:
+                continue
+            if read_access(target, role, plan.source_schema, plan.source_table) is not False:
                 raise DeploymentTargetError("ACCESS_VERIFICATION_FAILED")
+            for audience_view in plan.views:
+                expected = audience_view.audience == audience
+                readable = read_access(target, role, plan.view_schema, audience_view.view_name)
+                if readable is not expected:
+                    raise DeploymentTargetError("ACCESS_VERIFICATION_FAILED")
         target.execute(
             "INSERT INTO privacyshield_private.deployment_receipts (deployment_id, plan_hash) "
             "VALUES (%s, %s)",

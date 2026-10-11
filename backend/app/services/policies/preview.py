@@ -7,6 +7,8 @@ Two read-only views of a policy, both evaluated by PostgreSQL itself:
 * ``protected_output`` reads a few rows from the *deployed* view and reports what
   the reader role can and cannot access. It returns only what the approved policy
   already exposes to that role.
+
+Both describe one audience of the policy: the reader unless another is asked for.
 """
 
 import json
@@ -27,16 +29,21 @@ from app.schemas.policies import (
 )
 from app.services.discovery.catalog import DiscoveryError
 from app.services.policies.compiler import (
+    READER_AUDIENCE,
     VIEW_OWNER_ROLE,
-    VIEW_READER_ROLE,
     ColumnDecision,
     CompileError,
     compile_sample_query,
     quote_ident,
 )
-from app.services.policies.execution import deployer_session, read_access
+from app.services.policies.execution import (
+    deployer_session,
+    existing_audience_roles,
+    read_access,
+)
 from app.services.policies.service import (
     PolicyFailure,
+    audience_view,
     build_plan,
     policy_catalog_columns,
 )
@@ -150,8 +157,10 @@ def _sample_columns(decisions: list[ColumnDecision]) -> list[SampleColumn]:
     return [SampleColumn(name=c.name, data_type=c.data_type, action=c.action) for c in decisions]
 
 
-def illustrative_samples(db: Session, policy_id: UUID) -> PolicySamples:
-    """Run the compiled expressions over fabricated values on the target server.
+def illustrative_samples(
+    db: Session, policy_id: UUID, audience: str = READER_AUDIENCE
+) -> PolicySamples:
+    """Run one audience's compiled expressions over fabricated values on the target.
 
     The query reads no table. It runs as the view owner only so that column
     types defined in the source schema (an enum, a domain) resolve as they will
@@ -160,7 +169,7 @@ def illustrative_samples(db: Session, policy_id: UUID) -> PolicySamples:
     """
     policy, connection, plan = _policy_context(db, policy_id)
     catalog = policy_catalog_columns(db, policy)
-    decisions = plan.columns
+    decisions = audience_view(plan, audience).columns
     inputs = [sample_values(catalog.get(c.name, {}), c.action) for c in decisions]
     # If a fabricated value cannot be cast to its column type (a number too wide
     # for numeric(4,2), say), fall back to examples for text columns only.
@@ -169,7 +178,10 @@ def illustrative_samples(db: Session, policy_id: UUID) -> PolicySamples:
         for c, values in zip(decisions, inputs, strict=True)
     ]
     response = PolicySamples(
-        policy_id=policy.id, status="UNAVAILABLE", columns=_sample_columns(decisions)
+        policy_id=policy.id,
+        audience=audience,
+        status="UNAVAILABLE",
+        columns=_sample_columns(decisions),
     )
     rows = None
     try:
@@ -226,23 +238,30 @@ def _latest_completed_policy(db: Session, policy: MaskingPolicy) -> UUID | None:
     )
 
 
-def protected_output(db: Session, user: User, policy_id: UUID) -> ProtectedOutput:
-    """Return what the reader role sees through the deployed view, plus access facts."""
+def protected_output(
+    db: Session, user: User, policy_id: UUID, audience: str = READER_AUDIENCE
+) -> ProtectedOutput:
+    """Return what one audience's role sees through its deployed view, plus access facts."""
     if user.role != "ADMIN":
         raise PolicyFailure("INSUFFICIENT_PERMISSIONS")
     policy, connection, plan = _policy_context(db, policy_id)
+    selected = audience_view(plan, audience)
     if policy.status != "DEPLOYED" or _latest_completed_policy(db, policy) != policy.id:
         raise PolicyFailure("POLICY_NOT_DEPLOYED")
-    view = f"{quote_ident(plan.view_schema)}.{quote_ident(plan.view_name)}"
-    select_list = ", ".join(f"{quote_ident(c.name)}::text" for c in plan.columns)
+    view = f"{quote_ident(plan.view_schema)}.{quote_ident(selected.view_name)}"
+    select_list = ", ".join(f"{quote_ident(c.name)}::text" for c in selected.columns)
     try:
         with deployer_session(connection) as target, target.transaction():
             target.execute("SET TRANSACTION READ ONLY")
             target.execute(f"SET LOCAL statement_timeout = {_PREVIEW_TIMEOUT_MS}")
             target.execute(f"SET LOCAL ROLE {quote_ident(VIEW_OWNER_ROLE)}")
-            view_access = read_access(target, VIEW_READER_ROLE, plan.view_schema, plan.view_name)
+            if selected.role not in existing_audience_roles(target):
+                raise PolicyFailure("AUDIENCE_ROLE_MISSING")
+            view_access = read_access(
+                target, selected.role, plan.view_schema, selected.view_name
+            )
             source_access = read_access(
-                target, VIEW_READER_ROLE, plan.source_schema, plan.source_table
+                target, selected.role, plan.source_schema, plan.source_table
             )
             if view_access is None or source_access is None:
                 raise PolicyFailure("POLICY_NOT_DEPLOYED")
@@ -261,15 +280,16 @@ def protected_output(db: Session, user: User, policy_id: UUID) -> ProtectedOutpu
     db.commit()
     return ProtectedOutput(
         policy_id=policy.id,
+        audience=selected.audience,
         view_schema=plan.view_schema,
-        view_name=plan.view_name,
+        view_name=selected.view_name,
         source_schema=plan.source_schema,
         source_table=plan.source_table,
-        columns=_sample_columns(plan.columns),
+        columns=_sample_columns(selected.columns),
         rows=[[_cell(value) for value in row.values()] for row in rows],
         row_limit=OUTPUT_ROW_LIMIT,
         access=AccessCheck(
-            reader_role=VIEW_READER_ROLE,
+            reader_role=selected.role,
             reader_can_read_view=view_access,
             reader_can_read_source=source_access,
         ),

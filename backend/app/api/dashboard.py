@@ -186,7 +186,11 @@ def _deployed_rules(db: Session) -> dict[tuple, dict[str, str]]:
     if not latest:
         return {}
     rules: dict[object, dict[str, str]] = {policy_id: {} for policy_id in latest.values()}
-    for rule in db.scalars(select(PolicyRule).where(PolicyRule.policy_id.in_(rules))):
+    # Coverage means protected from the general reader, so only its rules count.
+    reader_rules = select(PolicyRule).where(
+        PolicyRule.policy_id.in_(rules), PolicyRule.audience == "reader"
+    )
+    for rule in db.scalars(reader_rules):
         rules[rule.policy_id][rule.column_name] = rule.action
     return {table: rules[policy_id] for table, policy_id in latest.items()}
 
