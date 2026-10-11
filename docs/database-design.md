@@ -44,12 +44,13 @@ The foundation migration establishes these entities. Their presence does not mea
 | `classification_job_items` | Composite job/result identity, same-scan foreign keys, per-result completion/failure state |
 | `pii_classifications` | Unique job/result pair, category/risk/action, confidence, bounded explanation, model/prompt version, required approval flag |
 | `masking_policies` | Connection/table/version identity, lifecycle state, source and compiled-plan fingerprints |
-| `policy_rules` | Policy FK, explicit per-column protection decision, optional classification FK |
+| `policy_rules` | Policy FK, explicit per-column protection decision for one audience (`reader`, `support` or `analyst`; unique per policy, column and audience), optional classification FK |
 | `policy_approvals` | Policy and deciding-user FKs, decision, timestamp |
 | `policy_deployments` | Policy FK, unique idempotency key, execution state, target receipt |
 | `audit_events` | Optional actor FK, event type, subject, timestamp, correlation identifier, sanitized details |
+| `audit_chain` | Insert-only hash chain over `audit_events`: dense index, event reference, previous hash, row hash. See [audit-chain.md](audit-chain.md) |
 
-UUID primary keys provide stable identities independent of display names. Timestamps use timezone-aware UTC storage. Foreign keys connect business entities; uniqueness prevents duplicate emails, names, tokens, policy versions, rule columns, and deployment idempotency keys where applicable. Database checks constrain roles/states, positive sample limits, nonnegative counts, and confidence/progress bounds.
+UUID primary keys provide stable identities independent of display names. Timestamps use timezone-aware UTC storage. Foreign keys connect business entities; uniqueness prevents duplicate emails, names, tokens, policy versions, rules for the same column and audience, and deployment idempotency keys where applicable. Database checks constrain roles/states, positive sample limits, nonnegative counts, and confidence/progress bounds.
 
 `schema_snapshots` additionally has a unique `(id, connection_id)` pair, referenced by the composite foreign key on `scan_jobs(snapshot_id, connection_id)`. PostgreSQL therefore rejects a scan that uses another connection's snapshot, even when both referenced records independently exist.
 

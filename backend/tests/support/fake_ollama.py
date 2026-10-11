@@ -57,7 +57,16 @@ class Handler(BaseHTTPRequestHandler):
             columns = json.loads(body["messages"][1]["content"])["columns"]
             with LOCK:
                 mode = STATE["mode"]
-                STATE["requests"].append({"model": body["model"], "columns": columns})
+                # The system message is recorded so a test can check which
+                # prompt text accompanied the evidence. Inputs are not judged
+                # here: the adapter validates them before any request is made.
+                STATE["requests"].append(
+                    {
+                        "model": body["model"],
+                        "columns": columns,
+                        "system": body["messages"][0]["content"],
+                    }
+                )
                 number = len(STATE["requests"])
             if mode == "unavailable":
                 return self.send_json({"error": "controlled unavailability"}, 503)

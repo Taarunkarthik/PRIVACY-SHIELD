@@ -35,6 +35,28 @@ The full diagram is the delivery target. Phases 1–3 deliver authentication, da
 
 The one-shot `migrate` service applies control-plane migrations. PostgreSQL entrypoint scripts provision roles and synthetic target data only when their respective data volumes are first initialized. The optional `ollama-pull` service downloads the configured model. Successful initialization and service health checks gate dependent startup. PostgreSQL is the source of truth for scan and classification state; Redis carries delivery messages containing job identifiers only.
 
+## Single-service deployment
+
+The topology above is what Docker Compose runs. A second arrangement exists for hosting on one small instance with no worker and no Redis (the Render free plan; see [deploy-render.md](deploy-render.md)). It is the same code with two settings:
+
+| Setting | Effect |
+| --- | --- |
+| `JOB_RUNNER=inline` (default `celery`) | The API process runs scan, classification and deployment jobs itself, on one worker thread. PostgreSQL remains the queue and the source of truth; the periodic `dispatch_*` sweep, the advisory locks and the attempt fencing are the same functions the Celery worker uses. Redis and Celery are not imported. |
+| `STATIC_DIR=<directory>` (default unset) | The API also serves the built frontend from that directory, with the security headers nginx sends. |
+
+```mermaid
+flowchart LR
+    Browser[React admin dashboard] --> Service[One web service: frontend files, API, job thread]
+    Service --> Metadata[(Control database)]
+    Service -->|Scanner and deployer roles| Target[(enterprise_demo database)]
+    Metadata --- Instance[One PostgreSQL instance]
+    Target --- Instance
+```
+
+In this arrangement the control and target databases share one PostgreSQL instance as two databases. `CONNECT` is revoked from `PUBLIC` on both, so target roles cannot open the control database and control roles cannot open the target. The trust boundaries below are otherwise unchanged: the application still runs as `ps_app`, scans as `ps_scanner`, deploys as `ps_deployer`, and readers still see only masked views.
+
+Celery's task time limits are replaced as follows. At the soft limit (scan 600 s, classification 900 s, deployment 120 s) the same `SoftTimeLimitExceeded` exception is raised inside the job thread, so the existing `*_TIMEOUT` handling applies. A thread cannot be killed at the hard limit (660 s, 1050 s, 150 s), so the process exits instead; the platform restarts it and the durable row is recovered as a new attempt. Statement timeouts (10 s control plane and scanner, 30 s deployer) and 5 s connection timeouts bound each database call as before.
+
 ## Trust boundaries
 
 - The browser receives session identity, sanitized metadata, and summaries. It never receives stored database passwords, and scanning, classification, suggestions, and the policy preview never send it source values. One endpoint is the deliberate exception: an administrator can read up to five rows through an already deployed masked view ([protected output](masking.md#protected-output)). That returns only what the approved policy exposes to the reader role, so a column the policy keeps appears as stored. Each call is audited.
@@ -53,7 +75,7 @@ All routes are prefixed `/api/v1`. Phase 1 includes:
 | Endpoint | Behavior |
 | --- | --- |
 | `GET /health/live` | Process liveness |
-| `GET /health/ready` | Required database and Redis readiness |
+| `GET /health/ready` | Required database and Redis readiness. In single-service mode Redis is reported as `not_used` and the job threads are checked instead |
 | `POST /auth/login` | Validate credentials and establish a server-side session |
 | `GET /auth/me` | Return identity and CSRF token for a valid session |
 | `POST /auth/logout` | Revoke the session; requires CSRF token |

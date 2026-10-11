@@ -1,3 +1,4 @@
+import threading
 from datetime import datetime
 from uuid import UUID
 
@@ -7,7 +8,9 @@ from sqlalchemy.orm import Session
 from app.api.dependencies import current_user, require_roles
 from app.core.database import get_db
 from app.models import User
+from app.schemas.audit_chain import AuditChainVerification
 from app.schemas.policies import (
+    Audience,
     AuditEventPage,
     DeploymentPage,
     DeploymentResponse,
@@ -20,6 +23,7 @@ from app.schemas.policies import (
     PolicySuggestions,
     ProtectedOutput,
 )
+from app.services.audit_chain import verify_audit_chain
 from app.services.policies.preview import illustrative_samples, protected_output
 from app.services.policies.service import (
     PolicyFailure,
@@ -52,6 +56,9 @@ def _handle_failure(exc: PolicyFailure) -> None:
         "POLICY_NOT_APPROVED": 409,
         "POLICY_NOT_DEPLOYED": 409,
         "ACCESS_VERIFICATION_FAILED": 409,
+        "AUDIENCE_ROLE_MISSING": 409,
+        "AUDIENCE_VIEW_IN_USE": 409,
+        "AUDIENCE_NOT_IN_POLICY": 404,
         "POLICY_NOT_FOUND": 404,
         "INVALID_TRANSITION": 409,
         "INSUFFICIENT_PERMISSIONS": 403,
@@ -190,11 +197,13 @@ def deploy_policy_endpoint(
 @router.get("/policies/{policy_id}/preview", response_model=PolicyPreview)
 def preview_policy(
     policy_id: UUID,
+    audience: Audience = "reader",
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> PolicyPreview:
+    """The compiled view for one audience; 404 if the policy gives that audience none."""
     try:
-        return get_policy_preview(db, policy_id)
+        return get_policy_preview(db, policy_id, audience)
     except PolicyFailure as exc:
         _handle_failure(exc)
 
@@ -202,12 +211,13 @@ def preview_policy(
 @router.get("/policies/{policy_id}/preview/samples", response_model=PolicySamples)
 def preview_policy_samples(
     policy_id: UUID,
+    audience: Audience = "reader",
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> PolicySamples:
     """Before/after illustration on fabricated values; reads no source rows."""
     try:
-        return illustrative_samples(db, policy_id)
+        return illustrative_samples(db, policy_id, audience)
     except PolicyFailure as exc:
         _handle_failure(exc)
 
@@ -215,12 +225,13 @@ def preview_policy_samples(
 @router.get("/policies/{policy_id}/protected-output", response_model=ProtectedOutput)
 def get_protected_output(
     policy_id: UUID,
+    audience: Audience = "reader",
     user: User = Depends(require_roles("ADMIN")),
     db: Session = Depends(get_db),
 ) -> ProtectedOutput:
-    """A few rows through the deployed view, with the reader role's access facts."""
+    """A few rows through one audience's deployed view, with its role's access facts."""
     try:
-        return protected_output(db, user, policy_id)
+        return protected_output(db, user, policy_id, audience)
     except PolicyFailure as exc:
         _handle_failure(exc)
 
@@ -234,6 +245,40 @@ def get_deployments(
 ) -> DeploymentPage:
     items, total = list_deployments(db, page=page, page_size=page_size)
     return DeploymentPage(items=items, total=total, page=page, page_size=page_size)
+
+
+_verify_in_progress = threading.Lock()
+
+
+# Declared before every other /audit-events route so that a parameterised path
+# added later (for example /audit-events/{event_id}) cannot capture "verify".
+@router.get("/audit-events/verify", response_model=AuditChainVerification)
+def verify_audit_events(
+    anchor_index: int | None = Query(default=None, ge=1, le=2**63 - 1),
+    anchor_hash: str | None = Query(default=None, pattern="^[0-9a-fA-F]{64}$"),
+    user: User = Depends(require_roles("ADMIN", "AUDITOR")),
+) -> AuditChainVerification:
+    """Seal pending events, then recompute the audit hash chain.
+
+    Deliberately not recorded as an audit event: that would append to the log
+    being measured, so two checks of an idle log would report different heads.
+    """
+    if (anchor_index is None) != (anchor_hash is None):
+        raise HTTPException(422, "anchor_index and anchor_hash must be given together")
+    # A check reads the whole log and holds a database connection while it does.
+    # One at a time per process keeps repeated requests from using up the pool.
+    if not _verify_in_progress.acquire(blocking=False):
+        raise HTTPException(
+            429,
+            "A verification is already running. Try again when it has finished.",
+            headers={"Retry-After": "5"},
+        )
+    try:
+        return AuditChainVerification.model_validate(
+            verify_audit_chain(anchor_index=anchor_index, anchor_hash=anchor_hash)
+        )
+    finally:
+        _verify_in_progress.release()
 
 
 @router.get("/audit-events", response_model=AuditEventPage)

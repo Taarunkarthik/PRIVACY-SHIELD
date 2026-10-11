@@ -1,0 +1,102 @@
+/*
+ * Masking Policies workbench: the policy list on the left, the selected policy
+ * on the right with its Rules, Preview and Protected output views. Loaded
+ * after src/styles.css, whose policy rules it builds on.
+ */
+.policy-workbench { display: grid; grid-template-columns: minmax(300px, 372px) minmax(0, 1fr); align-items: start; gap: 16px; }
+.policy-workbench.no-selection { grid-template-columns: minmax(0, 1fr); }
+.policy-workbench > .panel { min-width: 0; margin-bottom: 0; }
+
+/* Name on its own line, so a long table name never fights the status for room. */
+.policy-list .policy-items { padding: 0 12px 14px; gap: 6px; }
+.policy-list .policy-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; grid-template-areas: "name name open" "meta status open"; align-items: center; gap: 6px 10px; padding: 11px 10px 11px 14px; }
+.policy-list .policy-info { display: contents; }
+.policy-list .policy-info strong { grid-area: name; overflow-wrap: anywhere; }
+.policy-list .policy-info small { grid-area: meta; margin-top: 0; }
+.policy-list .policy-row .policy-status { grid-area: status; margin-left: 0; }
+.policy-list .policy-row > svg { grid-area: open; color: var(--text-3); }
+
+/* View switcher and the lifecycle actions for the selected policy. */
+.policy-toolbar { display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 0 16px; padding: 0 20px; border-bottom: 1px solid var(--line); }
+.policy-tabs { display: flex; gap: 2px; min-width: 0; }
+.policy-tab { display: inline-flex; align-items: center; gap: 8px; margin-bottom: -1px; padding: 10px 12px 11px; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--text-2); font-size: 14px; font-weight: 600; white-space: nowrap; }
+.policy-tab:hover { color: var(--text); }
+.policy-tab[aria-pressed="true"] { border-bottom-color: var(--mint); color: var(--text); }
+.policy-tab:focus-visible { outline-offset: -2px; border-radius: var(--radius-s); }
+.policy-toolbar .policy-actions { padding: 0 0 9px; }
+.policy-toolbar .policy-actions:empty { display: none; }
+
+.policy-detail .policy-rules { padding: 18px 20px 20px; }
+.view-heading { padding: 18px 20px 12px; }
+.view-heading h3 { font-size: 15px; overflow-wrap: anywhere; }
+.view-heading p { margin-top: 3px; font-size: 13px; color: var(--text-3); }
+.view-pending { min-height: 220px; }
+.policy-detail .policy-preview { margin-bottom: 0; }
+
+/* Audience switcher: which audience's view (or rule set) is on screen. */
+.audience-switch { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 14px 20px 0; }
+.audience-switch-label { margin-right: 4px; font-size: 13px; color: var(--text-3); }
+.audience-option { display: inline-flex; align-items: baseline; gap: 8px; min-height: 32px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--raised); color: var(--text-2); font-size: 13px; }
+.audience-option strong { font-weight: 600; }
+.audience-option small { font-family: var(--font-mono); font-size: 12px; color: var(--text-3); }
+.audience-option:hover { background: var(--raised-hover); color: var(--text); }
+.audience-option[aria-pressed="true"] { border-color: var(--mint-line); background: var(--mint-soft); color: var(--text); }
+.audience-option:hover small { color: var(--text-2); }
+.audience-option[aria-pressed="true"] small { color: var(--mint); }
+.rules-editor > .audience-switch { padding: 0 0 14px; }
+.rules-editor-note code { font-family: var(--font-mono); font-size: 12px; color: var(--text-2); }
+.suggestion-bar .button svg { flex-shrink: 0; }
+
+/* One policy, several audiences: a column per audience. */
+.policy-rules > .table-scroll { border: 1px solid var(--line); border-radius: 7px; }
+.audience-matrix td small.masking-type { display: block; margin-top: 5px; font-size: 12px; color: var(--text-3); }
+.audience-matrix thead th { white-space: normal; }
+
+/* Why the examples can be shown: sits above the table so it never scrolls sideways with it. */
+.masking-note { padding: 0 20px 14px; font-size: 13px; line-height: 1.6; color: var(--text-2); }
+.modal-error { margin: 0 24px 16px; }
+
+/* Before and after: amber while a value is exposed, mint once it is masked. */
+.masking-table td code.exposed-value { color: var(--amber); }
+.masking-table td code.masked-value { color: var(--mint); font-weight: 500; }
+/* While a value scrambles into its mask. Positioned so the screen-reader copy stays inside the scrolling table. */
+.masking-table td code.mask-reveal { position: relative; white-space: pre; }
+
+/* The four-column before/after table always fits its panel; long values wrap inside their cell. */
+.masking-preview { table-layout: fixed; }
+.masking-preview thead th:nth-child(1) { width: 19%; }
+.masking-preview thead th:nth-child(2) { width: 21%; }
+.masking-preview thead th:nth-child(3), .masking-preview thead th:nth-child(4) { width: 30%; }
+.masking-preview thead th, .masking-preview tbody th, .masking-preview tbody td { padding-left: 14px; padding-right: 14px; }
+.masking-preview thead th:first-child, .masking-preview tbody th { padding-left: 20px; min-width: 0; }
+.masking-preview td code { width: auto; max-width: 100%; }
+.masking-preview td code.mask-reveal { overflow: hidden; }
+
+/* Rows through the deployed view keep their shape; the table scrolls sideways when it is wider than the panel. */
+.masking-output td, .masking-output thead th { white-space: nowrap; }
+.masking-output thead th:first-child, .masking-output tbody td:first-child { padding-left: 20px; }
+
+@media (max-width: 1360px) {
+  .policy-workbench { grid-template-columns: minmax(260px, 300px) minmax(0, 1fr); }
+}
+
+@media (max-width: 1100px) {
+  .policy-workbench { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 700px) {
+  .policy-toolbar { padding: 0 12px; }
+  .policy-tab { padding: 10px 9px 11px; font-size: 13px; }
+  .policy-toolbar .policy-actions { padding: 10px 0; width: 100%; }
+  .policy-detail .policy-rules, .view-heading, .masking-note, .policy-detail > .audience-switch { padding-left: 16px; padding-right: 16px; }
+  /* Too narrow for four fixed columns: the table keeps a readable width and scrolls sideways. */
+  .masking-preview { table-layout: auto; min-width: 580px; }
+
+  /* Approval queue and deployment history rows stack. */
+  .approval-row, .deployment-row { flex-wrap: wrap; gap: 10px 12px; }
+  .approval-row .policy-icon, .deployment-icon { display: none; }
+  .approval-row .policy-info, .deployment-info { flex: 1 1 100%; }
+  .approval-row .policy-status, .deployment-row .deployment-status { margin-left: 0; }
+  .approval-actions { flex: 1 1 100%; }
+  .approval-actions .button { flex: 1; }
+}

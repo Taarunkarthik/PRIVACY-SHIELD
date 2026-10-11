@@ -17,6 +17,8 @@ x-app-env: &app-env
   CELERY_QUEUE: privacyshield
   OLLAMA_BASE_URL: http://ollama:11434
   OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:1.5b}
+  # false sends the model exactly the earlier (prompt v3) request, without value shapes.
+  AI_SEND_SHAPES: ${AI_SEND_SHAPES:-true}
 
 services:
   control-db:

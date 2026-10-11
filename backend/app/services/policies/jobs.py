@@ -6,6 +6,7 @@ from uuid import UUID
 from sqlalchemy import or_, select
 
 from app.core.audit import record_event
+from app.core.config import get_settings
 from app.core.database import session_factory
 from app.models import MaskingPolicy, PolicyDeployment
 from app.services.scanning.jobs import DISPATCH_INTERVAL_SECONDS, scan_lock
@@ -18,6 +19,8 @@ SAFE_ERROR_CODES = {
     "TABLE_TOO_WIDE",
     "VIEW_OWNER_UNAVAILABLE",
     "ACCESS_VERIFICATION_FAILED",
+    "AUDIENCE_ROLE_MISSING",
+    "AUDIENCE_VIEW_IN_USE",
     "TARGET_UNAVAILABLE",
     "DEPLOYMENT_FAILED",
     "DEPLOYMENT_TIMEOUT",
@@ -53,6 +56,10 @@ def enqueue_deployment(deployment_id: UUID, *, force: bool = False) -> bool:
             deployment.target_receipt = meta
             db.commit()
     try:
+        if get_settings().job_runner == "inline":
+            from app.workers.inline import submit
+
+            return submit("deploy", deployment_id)
         from app.workers.celery_app import celery_app
 
         celery_app.send_task(

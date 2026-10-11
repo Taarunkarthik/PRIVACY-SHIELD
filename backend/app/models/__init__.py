@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     CheckConstraint,
     DateTime,
@@ -265,16 +266,19 @@ class MaskingPolicy(Entity, Base):
 class PolicyRule(Entity, Base):
     __tablename__ = "policy_rules"
     __table_args__ = (
-        UniqueConstraint("policy_id", "column_name"),
+        # One decision per column for each audience.
+        UniqueConstraint("policy_id", "column_name", "audience"),
         CheckConstraint(
             "action IN ('KEEP','REDACT','PARTIAL','MASK_EMAIL','MASK_PHONE','MASK_ID',"
             "'PSEUDONYMIZE','NULLIFY','RESTRICT')",
             name="valid_action",
         ),
+        CheckConstraint("audience IN ('reader','support','analyst')", name="valid_audience"),
     )
 
     policy_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("masking_policies.id"), index=True)
     column_name: Mapped[str] = mapped_column(String(63))
+    audience: Mapped[str] = mapped_column(Text, default="reader", server_default="reader")
     action: Mapped[str] = mapped_column(String(16))
     pseudonym_domain: Mapped[str | None] = mapped_column(String(120))
     classification_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -333,6 +337,24 @@ class AuditEvent(Entity, Base):
 
 
 Index("ix_audit_events_created_at", AuditEvent.created_at)
+
+
+class AuditChain(Base):
+    """Insert-only hash chain over audit events; see app/services/audit_chain.py."""
+
+    __tablename__ = "audit_chain"
+    __table_args__ = (
+        CheckConstraint("chain_index >= 1", name="positive_index"),
+        CheckConstraint("prev_hash ~ '^[0-9a-f]{64}$'", name="valid_prev_hash"),
+        CheckConstraint("row_hash ~ '^[0-9a-f]{64}$'", name="valid_row_hash"),
+    )
+
+    # Assigned by the sealer under its lock so indices stay dense; never a sequence.
+    chain_index: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
+    event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("audit_events.id"), unique=True)
+    prev_hash: Mapped[str] = mapped_column(String(64))
+    row_hash: Mapped[str] = mapped_column(String(64))
+    sealed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class AppSettings(Entity, Base):

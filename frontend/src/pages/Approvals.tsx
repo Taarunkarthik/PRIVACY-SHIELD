@@ -47,7 +47,7 @@ export function Approvals() {
 
   return <div className="page-content approvals-page">
     <div className="page-heading">
-      <div><p className="eyebrow">HUMAN REVIEW, ALWAYS</p><h1>Approval Queue<span className="heading-dot">.</span></h1><p className="page-description">Review and decide on submitted masking policies before deployment.</p></div>
+      <div><h1>Approval Queue<span className="heading-dot">.</span></h1><p className="page-description">Review and decide on submitted masking policies before deployment.</p></div>
       <button className="button secondary" onClick={() => setRevision((v) => v + 1)} disabled={loading}><RefreshCw size={15} /> Refresh</button>
     </div>
     {(!canApprove) && <p className="role-note">Your account can review pending policies. An administrator can approve or reject them.</p>}

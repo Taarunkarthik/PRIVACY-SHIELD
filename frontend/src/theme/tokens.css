@@ -1,0 +1,74 @@
+/*
+ * PrivacyShield design tokens.
+ *
+ * One dark petrol ground, derived from the product's teal. Two accents carry
+ * meaning:
+ *   amber = exposed, sensitive, needs attention (and nothing else)
+ *   mint  = masked, protected, done
+ * Mint is also the brand colour: the logo, links and the current-view marker.
+ * Red is reserved for refusals and failures, blue for work in progress.
+ *
+ * Contrast on --panel over --ground, which renders as #11373d (WCAG):
+ * --text 11.7:1, --text-2 8.2:1, --text-3 5.6:1 (4.9:1 on a --raised row),
+ * --amber 7.6:1, --mint 8.6:1, --danger 6.9:1, --info 7.5:1.
+ */
+:root {
+  color-scheme: dark;
+
+  /* Ground and surfaces */
+  --ground: #0b2d34;
+  --ground-deep: #08242a;
+  --panel: rgb(18 57 63 / .86);        /* lets the data field show through, faintly */
+  --panel-solid: #12393f;              /* dialogs and the sign-in form */
+  --raised: rgb(255 255 255 / .045);   /* rows and cards that sit on a panel */
+  --raised-hover: rgb(255 255 255 / .08);
+  --selected: rgb(255 255 255 / .11);
+  --tint: rgb(255 255 255 / .07);      /* icon chips, count badges */
+  --track: rgb(255 255 255 / .13);     /* empty part of a progress bar */
+  --field: #0a272d;                    /* inputs are wells, darker than their panel */
+  --line: rgb(168 214 212 / .16);
+  --line-strong: rgb(168 214 212 / .32);
+
+  /* Text */
+  --text: #eef6f3;
+  --text-2: #bcd3d2;
+  --text-3: #93b0b1;
+  --ink: #082329;                      /* text on a light or accent fill */
+
+  /* Meaning */
+  --amber: #f7bd55;
+  --amber-soft: rgb(247 189 85 / .14);
+  --amber-line: rgb(247 189 85 / .4);
+  --mint: #74e8c2;
+  --mint-soft: rgb(116 232 194 / .13);
+  --mint-line: rgb(116 232 194 / .38);
+  --danger: #ffa799;
+  --danger-soft: rgb(255 140 122 / .15);
+  --danger-line: rgb(255 140 122 / .42);
+  --info: #93cdf2;
+  --info-soft: rgb(147 205 242 / .13);
+  --info-line: rgb(147 205 242 / .38);
+  --accent: var(--mint);
+  --accent-line: var(--mint-line);
+  --focus: #c4f7e4;
+
+  /*
+   * Chart marks. Deeper steps of the two accents, inside the dark-surface
+   * lightness band, checked with the dataviz palette validator against
+   * #11373d (the panel as rendered): CVD separation 11.2, normal vision 17.7,
+   * both at least 3:1 on the surface. Mirrored in src/theme/chart.ts.
+   */
+  --mark-exposed: #bd8526;
+  --mark-masked: #2ea686;
+
+  /* Type */
+  --font-display: "Bricolage Grotesque Variable", "IBM Plex Sans", "Segoe UI", sans-serif;
+  --font-body: "IBM Plex Sans", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
+
+  /* Shape */
+  --radius-s: 6px;
+  --radius-m: 10px;
+  --radius-l: 14px;
+  --shadow-float: 0 24px 60px rgb(2 20 24 / .55);
+}

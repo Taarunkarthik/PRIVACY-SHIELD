@@ -2,9 +2,14 @@ export type PolicyAction = 'KEEP' | 'REDACT' | 'PARTIAL' | 'MASK_EMAIL' | 'MASK_
 export type PolicyStatus = 'DRAFT' | 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED' | 'DEPLOYED' | 'FAILED';
 export type DeploymentStatus = 'QUEUED' | 'RUNNING' | 'RECONCILING' | 'COMPLETED' | 'FAILED';
 
+/** Who a rule is for. Each audience reads its own masked view through its own database role. */
+export type Audience = 'reader' | 'support' | 'analyst';
+export const AUDIENCES: Audience[] = ['reader', 'support', 'analyst'];
+
 export interface PolicyRule {
   policy_id: string;
   column_name: string;
+  audience: Audience;
   action: PolicyAction;
   pseudonym_domain: string | null;
   classification_id: string | null;
@@ -42,6 +47,11 @@ export interface PolicyPreview {
   view_name: string;
   columns: PolicyPreviewColumn[];
   sql: string;
+  audience: Audience;
+  /** The database role that reads this audience's view. */
+  role: string;
+  /** Every audience this policy creates a view for. */
+  audiences: Audience[];
 }
 
 export interface SampleColumn { name: string; data_type: string; action: PolicyAction }
@@ -51,14 +61,19 @@ export interface PolicySamples {
   policy_id: string;
   status: 'OK' | 'UNAVAILABLE';
   source: 'FABRICATED';
+  audience: Audience;
   columns: SampleColumn[];
   before: (string | null)[][];
   after: (string | null)[][];
 }
 
-/** Rows read through the deployed view, with what the reader role can access. */
+/**
+ * Rows read through one audience's deployed view, with what that audience's role
+ * can access. `access.reader_role` names the role of the audience asked for.
+ */
 export interface ProtectedOutput {
   policy_id: string;
+  audience: Audience;
   view_schema: string;
   view_name: string;
   source_schema: string;
@@ -134,6 +149,31 @@ export const deploymentStatusLabel: Record<DeploymentStatus, string> = {
   RECONCILING: 'Reconciling',
   COMPLETED: 'Completed',
   FAILED: 'Failed',
+};
+
+export const audienceLabel: Record<Audience, string> = {
+  reader: 'General readers',
+  support: 'Support',
+  analyst: 'Analysts',
+};
+
+/** The target database role each audience reads through. */
+export const audienceRole: Record<Audience, string> = {
+  reader: 'ps_reader',
+  support: 'ps_support',
+  analyst: 'ps_analyst',
+};
+
+/** The audiences a policy creates a view for: general readers always, the others once they have a rule. */
+export function policyAudiences(policy: Pick<Policy, 'rules'>): Audience[] {
+  return AUDIENCES.filter((audience) => audience === 'reader' || policy.rules.some((rule) => (rule.audience ?? 'reader') === audience));
+}
+
+/** What to do about a failed deployment, for the codes a person can act on. */
+export const deploymentErrorHint: Record<string, string> = {
+  AUDIENCE_ROLE_MISSING: 'The target database has no role for one of this policy\'s audiences. Create ps_support and ps_analyst (see the masking audiences guide), then deploy again.',
+  AUDIENCE_VIEW_IN_USE: 'Another database object depends on a view this version removes. Drop that object, then deploy again.',
+  ACCESS_VERIFICATION_FAILED: 'A role could read more than the policy allows, so nothing was changed. Check role memberships and grants in the target database.',
 };
 
 export const actionLabel: Record<PolicyAction, string> = {

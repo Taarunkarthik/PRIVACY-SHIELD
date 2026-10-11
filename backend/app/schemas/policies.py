@@ -16,6 +16,10 @@ PolicyAction = Literal[
     "NULLIFY",
     "RESTRICT",
 ]
+# Who a rule's decision is for. A fixed set: each audience maps to one target role
+# and one masked view. "reader" is the general, strictest audience.
+Audience = Literal["reader", "support", "analyst"]
+MAX_RULES_PER_AUDIENCE = 200
 _DOMAIN_PATTERN = re.compile(r"^[a-z0-9_]{1,60}$")
 PolicyStatus = Literal["DRAFT", "PENDING_APPROVAL", "APPROVED", "REJECTED", "DEPLOYED", "FAILED"]
 DeploymentStatus = Literal["QUEUED", "RUNNING", "RECONCILING", "COMPLETED", "FAILED"]
@@ -27,6 +31,7 @@ class PolicyRuleCreate(BaseModel):
     action: PolicyAction
     pseudonym_domain: str | None = Field(default=None, min_length=1, max_length=60)
     classification_id: UUID | None = None
+    audience: Audience = "reader"
 
     @field_validator("column_name")
     @classmethod
@@ -49,13 +54,24 @@ class PolicyCreate(BaseModel):
     schema_name: str = Field(min_length=1, max_length=63)
     table_name: str = Field(min_length=1, max_length=63)
     snapshot_id: UUID
-    rules: list[PolicyRuleCreate] = Field(min_length=1, max_length=200)
+    # Up to 200 rules for each of the three audiences.
+    rules: list[PolicyRuleCreate] = Field(min_length=1, max_length=3 * MAX_RULES_PER_AUDIENCE)
 
     @field_validator("schema_name", "table_name")
     @classmethod
     def valid_identifier(cls, value: str) -> str:
         if not value.strip() or "\x00" in value:
             raise ValueError("Identifier must contain non-null text")
+        return value
+
+    @field_validator("rules")
+    @classmethod
+    def bounded_per_audience(cls, value: list[PolicyRuleCreate]) -> list[PolicyRuleCreate]:
+        counts: dict[str, int] = {}
+        for rule in value:
+            counts[rule.audience] = counts.get(rule.audience, 0) + 1
+        if any(count > MAX_RULES_PER_AUDIENCE for count in counts.values()):
+            raise ValueError(f"At most {MAX_RULES_PER_AUDIENCE} rules are allowed per audience")
         return value
 
 
@@ -66,6 +82,7 @@ class PolicyRuleResponse(BaseModel):
     action: PolicyAction
     pseudonym_domain: str | None
     classification_id: UUID | None
+    audience: Audience = "reader"
 
 
 class PolicyResponse(BaseModel):
@@ -106,6 +123,11 @@ class PolicyPreview(BaseModel):
     view_name: str
     columns: list[PolicyPreviewColumn]
     sql: str
+    # The audience this preview describes, and the target role that reads its view.
+    audience: Audience = "reader"
+    role: str = "ps_reader"
+    # Every audience this policy has a view for; "reader" is always one of them.
+    audiences: list[Audience] = ["reader"]
 
 
 class SampleColumn(BaseModel):
@@ -118,6 +140,7 @@ class PolicySamples(BaseModel):
     """Compiled expressions applied to fabricated inputs; never source rows."""
 
     policy_id: UUID
+    audience: Audience = "reader"
     status: Literal["OK", "UNAVAILABLE"]
     source: Literal["FABRICATED"] = "FABRICATED"
     columns: list[SampleColumn]
@@ -126,6 +149,7 @@ class PolicySamples(BaseModel):
 
 
 class AccessCheck(BaseModel):
+    # The role of the audience asked for: ps_reader unless another was requested.
     reader_role: str
     reader_can_read_view: bool
     reader_can_read_source: bool
@@ -135,6 +159,7 @@ class ProtectedOutput(BaseModel):
     """Rows read through the deployed view: what the approved policy exposes."""
 
     policy_id: UUID
+    audience: Audience = "reader"
     view_schema: str
     view_name: str
     source_schema: str

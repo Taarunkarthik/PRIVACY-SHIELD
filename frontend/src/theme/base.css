@@ -1,0 +1,71 @@
+/*
+ * Page ground, type scale, focus, and the data-field canvas that sits behind
+ * everything. Loaded before the component and page styles.
+ *
+ * Type: Bricolage Grotesque for headings, IBM Plex Sans for interface text,
+ * IBM Plex Mono for real data (values, identifiers, SQL). Body text is 14px,
+ * nothing is smaller than 12px.
+ */
+* { box-sizing: border-box; }
+
+html { background: var(--ground); }
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background: var(--ground);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.5;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, p { margin: 0; }
+h1, h2 { font-family: var(--font-display); font-weight: 600; letter-spacing: -.015em; text-wrap: balance; }
+h3 { font-family: var(--font-body); font-weight: 600; }
+
+a { color: inherit; text-decoration: none; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button, a { -webkit-tap-highlight-color: transparent; }
+button { cursor: pointer; }
+button:disabled { cursor: default; opacity: .5; }
+
+code, pre, kbd { font-family: var(--font-mono); font-size: .93em; }
+
+::selection { background: rgb(116 232 194 / .32); color: var(--text); }
+
+/* One focus treatment everywhere: a pale mint ring that clears every surface. */
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+:focus:not(:focus-visible) { outline: none; }
+
+/*
+ * The data field. A fixed canvas under the whole application; the pages above
+ * it leave their own background transparent so it shows in the margins and,
+ * faintly, through the panels.
+ */
+.data-field {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+#root > :not(.data-field) { position: relative; z-index: 1; }
+
+.spin, .loading-ring { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes pulse { 50% { opacity: .35; } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

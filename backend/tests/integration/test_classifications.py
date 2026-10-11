@@ -30,7 +30,11 @@ from app.models import (
     SchemaSnapshot,
     User,
 )
-from app.services.classification.adapter import ClassificationDecision
+from app.services.classification.adapter import (
+    PROMPT_VERSION,
+    ClassificationDecision,
+    system_prompt,
+)
 from app.services.classification.jobs import (
     enqueue_classification,
     finish_job,
@@ -215,24 +219,41 @@ def test_classification_metadata_only_real_worker_and_duplicate_delivery(
     evidence_scan, fake_model, db
 ):
     client, scan, rows = evidence_scan
+    # This evidence has the form stored before values_read and shapes existed.
+    # The email column matched on every row, so the detectors decided it; the
+    # request without a selection asks only about the other two whole columns.
+    summary = client.get(f"/api/v1/scans/{scan.id}/classification-summary")
+    assert summary.status_code == 200
+    assert summary.json() == {
+        "scan_id": str(scan.id),
+        "whole_columns": 3,
+        "decided": 1,
+        "uncertain": 2,
+        "not_classifiable": 0,
+        "selection_limit": 50,
+        "will_classify": 2,
+    }
     job_id = submit(client, scan)
     job = completed(client, job_id)
+    assert job["prompt_version"] == PROMPT_VERSION == "privacyshield-classify-v4"
     assert (
         job["total_results"],
         job["completed_results"],
         job["failed_results"],
         job["progress"],
-    ) == (3, 3, 0, 100)
+    ) == (2, 2, 0, 100)
     items = decisions(client, job_id)["items"]
-    assert len(items) == 3 and all(item["requires_approval"] is True for item in items)
+    assert len(items) == 2 and all(item["requires_approval"] is True for item in items)
     assert {item["scan_result_id"] for item in items} == {
-        str(row.id) for row in rows if not row.json_path
+        str(row.id) for row in rows if not row.json_path and row.column_name != "email"
     }
     assert all(item["confidence"] == 0.87 for item in items)
     assert next(item for item in items if item["column_name"] == "id")["category"] == "NONE"
     requests = fake_model.get("/requests").json()["requests"]
-    assert len(requests) == 3
+    assert len(requests) == 2
     assert all(len(request["columns"]) == 1 for request in requests)
+    # No shapes were stored, so none are sent and the prompt has no shapes paragraph.
+    assert all(request["system"] == system_prompt(with_shapes=False) for request in requests)
     allowed = {
         "result_id",
         "schema_name",
@@ -361,7 +382,8 @@ def test_partial_classification_retains_only_valid_advice(evidence_scan, fake_mo
     assert fake_model.post("/control", json={"mode": "partial"}).status_code == 200
     job_id = submit(client, scan)
     job = completed(client, job_id, "PARTIAL")
-    assert (job["completed_results"], job["failed_results"], job["progress"]) == (1, 2, 100)
+    # Two undecided columns are selected; the double accepts only the first request.
+    assert (job["completed_results"], job["failed_results"], job["progress"]) == (1, 1, 100)
     assert job["error_code"] == "AI_INVALID_RESPONSE"
     assert decisions(client, job_id)["total"] == 1
 

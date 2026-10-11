@@ -18,6 +18,7 @@ from app.models import (
     SchemaSnapshot,
 )
 from app.services.scanning.jobs import DISPATCH_INTERVAL_SECONDS, MAX_ATTEMPTS, scan_lock
+from app.services.scanning.shapes import MIN_SHAPE_ROWS, is_valid_shape
 
 SAFE_ERROR_CODES = {
     "OLLAMA_UNAVAILABLE",
@@ -36,6 +37,10 @@ SAFE_ERROR_CODES = {
     "PROMPT_VERSION_CHANGED",
 }
 STOP_ERRORS = {"OLLAMA_UNAVAILABLE", "OLLAMA_TIMEOUT", "OLLAMA_HTTP_ERROR", "AI_MODEL_MISMATCH"}
+# Value shapes and the prompt paragraph that explains them have not been run
+# against the real model. AI_SEND_SHAPES=false (Settings.ai_send_shapes) sends
+# exactly the request that was verified under prompt v3; stored shapes are then
+# left unused.
 
 
 class ClassificationFailure(Exception):
@@ -62,6 +67,10 @@ def enqueue_classification(job_id: UUID, *, force=False) -> bool:
             job.dispatch_attempted_at = now
             db.commit()
     try:
+        if get_settings().job_runner == "inline":
+            from app.workers.inline import submit
+
+            return submit("classify", job_id)
         from app.workers.celery_app import celery_app
 
         celery_app.send_task(
@@ -228,7 +237,7 @@ def evidence_for_result(db, job: ClassificationJob, result_id: UUID) -> dict:
     )
     if column is None:
         raise ClassificationFailure("RESULT_METADATA_MISMATCH")
-    return {
+    evidence = {
         "result_id": str(result.id),
         "schema_name": result.schema_name,
         "table_name": result.table_name,
@@ -244,6 +253,34 @@ def evidence_for_result(db, job: ClassificationJob, result_id: UUID) -> dict:
         "detector_confidence": result.confidence,
         "coverage": result.sanitized_evidence.get("coverage", {}),
     }
+    # Optional evidence: absent for JSON, for unread columns and for scans
+    # stored before shapes existed. The adapter validates every shape against
+    # a fixed alphabet and rejects the column if one does not pass.
+    if get_settings().ai_send_shapes and not result.json_path:
+        shapes = sendable_shapes(result.sanitized_evidence.get("shapes"))
+        if shapes:
+            evidence["shapes"] = shapes
+    return evidence
+
+
+def sendable_shapes(stored: object) -> list[dict]:
+    """The stored shapes that meet today's rules.
+
+    A scan stored by an earlier build can hold shapes this build would not
+    compute: one with a sign at an end, or one that fewer than
+    ``MIN_SHAPE_ROWS`` values had. Those are left out here, so the model is
+    never sent them and the adapter does not reject the whole column for them.
+    """
+    if not isinstance(stored, list):
+        return []
+    return [
+        item
+        for item in stored
+        if isinstance(item, dict)
+        and isinstance(item.get("rows"), int)
+        and item["rows"] >= MIN_SHAPE_ROWS
+        and is_valid_shape(item.get("shape"))
+    ]
 
 
 def run_classification(job_id: UUID) -> None:
