@@ -1,0 +1,31 @@
+/*
+ * Users page: the accounts table, the role guide, and the add-user and
+ * reset-password dialogs. Loaded last; builds on the shared table, pill,
+ * form-field and modal rules.
+ */
+.users-page > .panel + .panel { margin-top: 16px; }
+.accounts-table tbody th { overflow-wrap: anywhere; }
+.you-pill { margin-left: 8px; vertical-align: middle; }
+.account-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.account-actions .button { min-height: 32px; padding: 5px 10px; font-size: 13px; white-space: nowrap; }
+.account-inactive th { color: var(--text-3); }
+
+/* What each role may do: a short definition list, one row per role. */
+.role-guide { margin: 0; padding: 0 20px 8px; }
+.role-guide > div { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 4px 16px; padding: 11px 0; border-top: 1px solid var(--line); }
+.role-guide dt { font-size: 14px; font-weight: 600; color: var(--text); }
+.role-guide dd { margin: 0; font-size: 14px; line-height: 1.55; color: var(--text-2); }
+
+/* Dialogs */
+.account-form .password-field { margin-bottom: 0; }
+.account-form .modal-actions { margin-top: 20px; }
+.account-form .modal-error { margin: 16px 24px 0; }
+.field-hint { font-size: 12px; line-height: 1.5; color: var(--text-3); }
+
+@media (max-width: 700px) {
+  .role-guide { padding: 0 16px 6px; }
+  .role-guide > div { grid-template-columns: minmax(0, 1fr); }
+  .account-actions { justify-content: flex-start; }
+  /* The date is the least needed column on a phone; the rest scrolls sideways inside the panel. */
+  .accounts-table th:nth-child(4), .accounts-table td:nth-child(4) { display: none; }
+}

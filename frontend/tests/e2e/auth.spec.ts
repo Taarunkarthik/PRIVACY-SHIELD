@@ -41,8 +41,9 @@ test('real browser signs in, renders live totals, navigates, and signs out', asy
   await page.reload();
   await expect(page.getByRole('heading', { name: 'Workspace overview.' })).toBeVisible();
   const nav = page.getByRole('navigation', { name: 'Main navigation' });
-  await expect(nav.getByRole('link')).toHaveCount(9);
-  for (const label of ['Connections', 'Schema Explorer', 'Scan Results', 'AI Classification', 'Masking Policies', 'Approval Queue', 'Audit Logs', 'Settings']) {
+  // Nine pages for everyone, plus Users for the administrator this spec signs in as.
+  await expect(nav.getByRole('link')).toHaveCount(10);
+  for (const label of ['Connections', 'Schema Explorer', 'Scan Results', 'AI Classification', 'Masking Policies', 'Approval Queue', 'Audit Logs', 'Users', 'Settings']) {
     await nav.getByRole('link', { name: label, exact: true }).click();
     await expect(page.getByRole('heading', { name: new RegExp(`^${label}\\.?$`) })).toBeVisible();
   }

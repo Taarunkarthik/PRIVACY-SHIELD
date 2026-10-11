@@ -18,7 +18,9 @@ from app.schemas.connections import Catalog, normalize_host
 MAX_TABLES = 500
 MAX_COLUMNS = 10000
 MAX_CONSTRAINTS = 5000
-DEFAULT_SCHEMAS = ["enterprise", "public"]
+# Inspected when no schema is named: the bundled demo schemas, and public.
+# Only those the scanner can actually use are returned.
+DEFAULT_SCHEMAS = ["enterprise", "hospital", "university", "public"]
 
 
 class DiscoveryError(Exception):

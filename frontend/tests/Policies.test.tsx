@@ -9,6 +9,8 @@ const connection = {
   deployer_username: 'ps_deployer', is_active: true, created_at: '2026-10-10T00:00:00Z',
 };
 
+const hospital = { ...connection, id: 'db-2', name: 'Synthetic hospital', database_name: 'hospital_demo', created_at: '2026-10-11T00:00:00Z' };
+
 const rules = [
   { policy_id: 'policy-1', column_name: 'id', action: 'KEEP', pseudonym_domain: null, classification_id: null },
   { policy_id: 'policy-1', column_name: 'email', action: 'REDACT', pseudonym_domain: null, classification_id: null },
@@ -43,7 +45,7 @@ const supportRules = [
   { policy_id: 'policy-1', column_name: 'phone', audience: 'support', action: 'MASK_PHONE', pseudonym_domain: null, classification_id: null },
 ];
 
-function server({ role = 'ADMIN', status = 'DRAFT', samples = false, withSupport = false, createFails = false } = {}) {
+function server({ role = 'ADMIN', status = 'DRAFT', samples = false, withSupport = false, createFails = false, second = false } = {}) {
   let current = status;
   // When set, the general reader preview waits for the test to release it.
   const readerPreview: { hold: Promise<void> | null } = { hold: null };
@@ -51,7 +53,9 @@ function server({ role = 'ADMIN', status = 'DRAFT', samples = false, withSupport
     const path = String(url);
     const method = options?.method ?? 'GET';
     if (path.endsWith('/auth/me')) return json({ id: 'user-1', email: 'admin@example.test', role, csrf_token: 'csrf-policy' });
-    if (path.includes('/connections?')) return json({ items: [connection], total: 1, page: 1, page_size: 100 });
+    if (path.includes('/connections?')) return json({ items: second ? [hospital, connection] : [connection], total: second ? 2 : 1, page: 1, page_size: 100 });
+    // A second database with one policy of its own.
+    if (path.includes('/policies?connection_id=db-2')) return json({ items: [{ ...policy(), id: 'policy-9', connection_id: 'db-2', schema_name: 'hospital', table_name: 'patients' }], total: 1, page: 1, page_size: 10 });
     if (path.endsWith('/policies/policy-1/preview?audience=support')) return json({
       policy_id: 'policy-1', schema_name: 'enterprise', table_name: 'customers',
       view_schema: 'privacyshield_masked', view_name: 'customers_abc123_support',
@@ -359,6 +363,41 @@ describe('masking policy workflow', () => {
     expect(document.body).toHaveFocus();
     await visitor.keyboard('{Escape}');
     expect(screen.queryByRole('dialog', { name: 'Create policy' })).not.toBeInTheDocument();
+  });
+
+  it('offers no database choice when there is only one', async () => {
+    server();
+    render(<App />);
+    await screen.findByRole('region', { name: 'Policies' });
+    expect(screen.queryByLabelText('Database connection')).not.toBeInTheDocument();
+  });
+
+  it('switches to another database and lists that database\'s policies', async () => {
+    const fetchMock = server({ second: true });
+    const user = userEvent.setup();
+    render(<App />);
+    const list = await screen.findByRole('region', { name: 'Policies' });
+    expect(await within(list).findByText('enterprise.customers')).toBeInTheDocument();
+    const picker = within(list).getByLabelText('Database connection');
+    expect(picker).toHaveValue('db-1');
+
+    await user.selectOptions(picker, 'Synthetic hospital');
+    expect(await within(list).findByText('hospital.patients')).toBeInTheDocument();
+    expect(within(list).queryByText('enterprise.customers')).not.toBeInTheDocument();
+    expect(within(list).getByText('Protection policies for Synthetic hospital.')).toBeInTheDocument();
+    // The policy of the first database is not carried into the second one's address.
+    expect(window.location.search).toBe('?connection=db-2');
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/policies?connection_id=db-2&page=1'))).toBe(true);
+  });
+
+  it('opens on the longest-standing database when the address names none', async () => {
+    server({ second: true });
+    // The API lists the newest connection first; the page does not follow that.
+    window.history.replaceState({}, '', '/policies');
+    render(<App />);
+    const list = await screen.findByRole('region', { name: 'Policies' });
+    expect(await within(list).findByText('enterprise.customers')).toBeInTheDocument();
+    expect(within(list).getByLabelText('Database connection')).toHaveValue('db-1');
   });
 
   it('does not offer approval to analysts', async () => {

@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router';
 import { ArrowRight, Check, ChevronLeft, ChevronRight, Copy, FileClock, Play, Plus, RefreshCw, Send, ShieldCheck, Sparkles, X } from 'lucide-react';
 import { api, ApiError } from '../api/client';
 import { useAuth } from '../api/auth';
+import { defaultConnectionId } from '../api/connections';
 import type { Connection, SchemaSnapshot } from '../api/connections';
 import { classificationCategory } from '../api/classifications';
 import type { Audience, Policy, PolicyPage, PolicyPreview, PolicyAction, PolicyRule, PolicySamples, PolicySuggestions, ProtectedOutput, RuleSuggestion } from '../api/policies';
@@ -49,7 +50,7 @@ export function Policies() {
   const outputKey = useRef('');
   const [view, setView] = useState<PolicyView>('rules');
   const [audience, setAudience] = useState<Audience>('reader');
-  const connectionId = params.get('connection') || connections.find((c) => c.is_active)?.id || connections[0]?.id || '';
+  const connectionId = params.get('connection') || defaultConnectionId(connections);
   const connection = connections.find((c) => c.id === connectionId);
   const selectedId = params.get('policy') || policies?.items[0]?.id || '';
   const selected = policies?.items.find((p) => p.id === selectedId) || null;
@@ -183,6 +184,15 @@ export function Policies() {
   const canSeeOutput = canApprove && selected?.status === 'DEPLOYED';
   const shownView: PolicyView = view === 'output' && !canSeeOutput ? 'rules' : view;
 
+  // Policies belong to one database. Changing it starts that database's list from
+  // its first page, with no policy carried over from the previous one.
+  function chooseConnection(id: string) {
+    if (id === connectionId) return;
+    setPage(1);
+    setPolicies(null);
+    setParams({ connection: id });
+  }
+
   function selectPolicy(id: string) {
     // Reset together with the selection, so no frame shows the old tab for the
     // new policy. The effect above covers the routes that do not pass through here.
@@ -229,6 +239,12 @@ export function Policies() {
     {connection && <div className={`policy-workbench ${selected ? '' : 'no-selection'}`}>
       <section className="panel policy-list" aria-label="Policies">
         <div className="panel-heading"><div><h2>Policies <span className="count-badge">{policies?.total ?? '—'}</span></h2><p>Protection policies for {connection.name}.</p></div></div>
+        {connections.length > 1 && <div className="form-field policy-connection">
+          <label htmlFor="policy-connection">Database connection</label>
+          <select id="policy-connection" value={connectionId} onChange={(e) => chooseConnection(e.target.value)} disabled={Boolean(actionLoading)}>
+            {connections.map((item) => <option key={item.id} value={item.id}>{item.name}{item.is_active ? '' : ' (inactive)'}</option>)}
+          </select>
+        </div>}
         {policiesLoading && !policies ? <div className="data-empty" role="status"><div className="loading-ring" /><p>Loading policies…</p></div>
           : policies && !policies.total ? <div className="data-empty"><ShieldCheck size={34} strokeWidth={1.3} /><h3>No policies yet</h3><p>{canManage ? 'Create your first masking policy to protect sensitive data.' : 'Policies will appear here once an administrator or analyst creates one.'}</p></div>
           : <div className="policy-items">{policies?.items.map((item) => (

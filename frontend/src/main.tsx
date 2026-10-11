@@ -16,5 +16,6 @@ import './theme/shell.css';
 import './styles.css';
 import './theme/dashboard.css';
 import './theme/policies.css';
+import './theme/users.css';
 
 createRoot(document.getElementById('root')!).render(<StrictMode><App /></StrictMode>);

@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router';
 import { ArrowRight, Braces, ChevronRight, Database, KeyRound, Layers3, Link2, RefreshCw, Search, Table2, Waypoints } from 'lucide-react';
 import { api, ApiError } from '../api/client';
 import { useAuth } from '../api/auth';
-import { connectionError, discoveryScope } from '../api/connections';
+import { connectionError, defaultConnectionId, discoveryScope } from '../api/connections';
 import type { Connection, ConnectionPage, SchemaSnapshot, SchemaTable } from '../api/connections';
 
 const tableKey = (table: Pick<SchemaTable, 'schema' | 'name'>) => JSON.stringify([table.schema, table.name]);
@@ -25,7 +25,7 @@ export function SchemaExplorer() {
   const [columnFilter, setColumnFilter] = useState('');
   const [schemas, setSchemas] = useState('');
   const [discovering, setDiscovering] = useState(false);
-  const connectionId = params.get('connection') || connections.find((item) => item.is_active)?.id || connections[0]?.id || '';
+  const connectionId = params.get('connection') || defaultConnectionId(connections);
   const selectedConnection = connections.find((item) => item.id === connectionId);
 
   useEffect(() => {

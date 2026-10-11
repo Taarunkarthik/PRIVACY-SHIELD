@@ -6,6 +6,8 @@
 .policy-workbench { display: grid; grid-template-columns: minmax(300px, 372px) minmax(0, 1fr); align-items: start; gap: 16px; }
 .policy-workbench.no-selection { grid-template-columns: minmax(0, 1fr); }
 .policy-workbench > .panel { min-width: 0; margin-bottom: 0; }
+/* Shown when there is more than one database to choose from. */
+.policy-connection { padding: 0 22px 16px; }
 
 /* Name on its own line, so a long table name never fights the status for room. */
 .policy-list .policy-items { padding: 0 12px 14px; gap: 6px; }

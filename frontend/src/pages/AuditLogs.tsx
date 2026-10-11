@@ -164,6 +164,15 @@ export function AuditLogs() {
           <option value="CLASSIFICATION_COMPLETED">Classification completed</option>
           <option value="CONNECTION_CREATED">Connection created</option>
           <option value="SCHEMA_DISCOVERED">Schema discovered</option>
+          <option value="USER_CREATED_AS_ADMIN">Administrator created</option>
+          <option value="USER_CREATED_AS_ANALYST">Analyst created</option>
+          <option value="USER_CREATED_AS_AUDITOR">Auditor created</option>
+          <option value="USER_ROLE_SET_ADMIN">Role set to administrator</option>
+          <option value="USER_ROLE_SET_ANALYST">Role set to analyst</option>
+          <option value="USER_ROLE_SET_AUDITOR">Role set to auditor</option>
+          <option value="USER_DEACTIVATED">User deactivated</option>
+          <option value="USER_REACTIVATED">User reactivated</option>
+          <option value="USER_PASSWORD_RESET">User password reset</option>
         </select>
       </div>
       <div className="form-field"><label htmlFor="audit-subject-type">Subject</label>

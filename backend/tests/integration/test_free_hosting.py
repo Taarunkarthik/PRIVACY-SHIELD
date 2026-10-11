@@ -27,6 +27,7 @@ import pytest
 from psycopg import sql
 from psycopg.rows import dict_row
 
+from app.demo_datasets import DEMO_DATASETS, EXTRA_DATASETS
 from app.render_bootstrap import SECRET_LABELS, derive_secret
 from tests.support import hosted
 from tests.support.pristine import RESERVED_ROLES, PristineServer, pristine_server
@@ -126,7 +127,7 @@ def _provision(server: PristineServer, *, createdb: bool) -> Instance:
 def _remove(server: PristineServer, created: Instance) -> None:
     """Return the server to its empty state: exactly what was made, nothing else."""
     with server.connect() as connection:
-        for database in (created.control_db, "enterprise_demo"):
+        for database in (created.control_db, *(item.database for item in DEMO_DATASETS)):
             connection.execute(
                 sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(sql.Identifier(database))
             )
@@ -179,7 +180,10 @@ def _state(instance: Instance) -> dict:
             "SELECT datname, datdba::regrole::text, datacl::text FROM pg_catalog.pg_database"
             " ORDER BY 1"
         ).fetchall()
-    for database in (instance.control_db, "enterprise_demo"):
+    # Every demo database that exists; the further ones need CREATEDB to be made.
+    present = {row[0] for row in state["databases"]}
+    demo_databases = [item.database for item in DEMO_DATASETS if item.database in present]
+    for database in (instance.control_db, *demo_databases):
         with instance.server.connect(database) as c:
             state[database] = {
                 "schemas": c.execute(
@@ -226,6 +230,15 @@ def _refused(connection, statement: str) -> str:
 
 
 DENIED = "42501"  # insufficient_privilege
+
+# The table of people in each further demo database, and one policy that fits both.
+EXTRA_PEOPLE = {"hospital": "patients", "university": "students"}
+PEOPLE_RULES = [
+    {"column_name": "id", "action": "KEEP"},
+    {"column_name": "full_name", "action": "REDACT"},
+    {"column_name": "email", "action": "MASK_EMAIL"},
+    {"column_name": "aadhaar", "action": "MASK_ID"},
+]
 
 
 def test_admin_without_createdb_still_gets_a_restricted_application_role(server, tmp_path):
@@ -477,9 +490,13 @@ def test_start_script_serves_the_whole_product_from_one_process(instance, tmp_pa
         assert session.get("/api/v1/auth/me").json()["role"] == "ADMIN"
 
         connections = session.get("/api/v1/connections").json()["items"]
-        assert len(connections) == 1
-        demo = connections[0]
-        assert demo["name"] == "Synthetic enterprise"
+        by_name = {item["name"]: item for item in connections}
+        assert set(by_name) == {
+            "Synthetic enterprise",
+            "Synthetic hospital",
+            "Synthetic university",
+        }
+        demo = by_name["Synthetic enterprise"]
         assert (demo["host"], demo["port"]) == (instance.server.host, instance.server.port)
         assert demo["database_name"] == "enterprise_demo" and demo["ssl_mode"] == "disable"
         assert (demo["scanner_username"], demo["deployer_username"]) == (
@@ -547,6 +564,61 @@ def test_start_script_serves_the_whole_product_from_one_process(instance, tmp_pa
         assert policy["status"] == "DEPLOYED", policy
         assert deployment["status"] == "COMPLETED", deployment
 
+        # ------------------------------------------- the two further demo databases
+        # Each is its own database on the same server, registered at startup, and
+        # found with no schema named: the default scope covers the demo schemas.
+        found, extra_views = {}, {}
+        for dataset in EXTRA_DATASETS:
+            assert f"Bootstrap: demo database {dataset.database} is ready" in first.log()
+            extra = by_name[dataset.connection_name]
+            assert extra["database_name"] == dataset.database
+            assert (extra["host"], extra["port"]) == (instance.server.host, instance.server.port)
+            discovered = session.post(f"/api/v1/connections/{extra['id']}/discover")
+            assert discovered.status_code == 200, discovered.text
+            catalog = discovered.json()["catalog"]
+            assert catalog["schemas"] == [dataset.schema]
+            assert len(catalog["tables"]) == 4
+            extra_scan = hosted.wait_scan(
+                session, hosted.queue_scan(session, extra["id"], discovered.json()["snapshot_id"])
+            )
+            assert extra_scan["status"] == "COMPLETED", extra_scan
+            results = session.get(
+                f"/api/v1/scans/{extra_scan['id']}/results?page=1&page_size=100"
+            ).json()["items"]
+            found[dataset.schema] = {
+                (item["table_name"], item["column_name"]): set(item["category_counts"])
+                for item in results
+                if item["matching_rows"] and not item["json_path"]
+            }
+            # A policy deploys there too, through the same deployer role.
+            people = EXTRA_PEOPLE[dataset.schema]
+            extra_policy, extra_deployment, extra_preview = hosted.deploy_policy(
+                session,
+                extra["id"],
+                discovered.json()["snapshot_id"],
+                schema_name=dataset.schema,
+                table_name=people,
+                rules=PEOPLE_RULES,
+            )
+            assert extra_policy["status"] == "DEPLOYED", extra_policy
+            assert extra_deployment["status"] == "COMPLETED", extra_deployment
+            extra_views[dataset] = (
+                people,
+                f'{extra_preview["view_schema"]}."{extra_preview["view_name"]}"',
+            )
+        # The detectors that work from the form of a value find each kind that was
+        # planted. (Names and places come from a language model and are not pinned.)
+        hospital, university = found["hospital"], found["university"]
+        assert "EMAIL_ADDRESS" in hospital[("patients", "email")]
+        assert "PHONE_NUMBER" in hospital[("patients", "phone")]
+        assert "AADHAAR_CANDIDATE" in hospital[("patients", "aadhaar")]
+        assert "CREDIT_CARD" in hospital[("billing", "card_number")]
+        assert {"EMAIL_ADDRESS", "PHONE_NUMBER"} <= hospital[("appointments", "notes")]
+        assert "EMAIL_ADDRESS" in university[("students", "email")]
+        assert "AADHAAR_CANDIDATE" in university[("students", "aadhaar")]
+        assert "PAN_CANDIDATE" in university[("faculty", "pan")]
+        assert "BANK_ACCOUNT" in university[("fee_payments", "bank_account_number")]
+
         # No Celery beat exists here: the in-process sweep is what seals audit events
         # into the hash chain. Checked in the database first, because the verify
         # endpoint seals before it reads and would hide a sweep that never did.
@@ -576,6 +648,25 @@ def test_start_script_serves_the_whole_product_from_one_process(instance, tmp_pa
             assert all(row["balance"] is None for row in rows)
             with pytest.raises(psycopg.errors.InsufficientPrivilege):
                 reader.execute("SELECT * FROM enterprise.accounts LIMIT 1")
+
+        # In each further database the reader sees the masked view and not the table.
+        masked_email = re.compile(r"[a-z]\*\*\*@(students\.)?example\.(com|org)")
+        for dataset, (people, extra_view) in extra_views.items():
+            with instance.connect_as(
+                "ps_reader", "READER_PASSWORD", dataset.database, row_factory=dict_row
+            ) as reader:
+                rows = reader.execute(
+                    f"SELECT full_name, email, phone, aadhaar FROM {extra_view} ORDER BY id LIMIT 5"
+                ).fetchall()
+                assert len(rows) == 5
+                for row in rows:
+                    assert row["full_name"] == "[REDACTED]"
+                    assert masked_email.fullmatch(row["email"]), row
+                    assert re.fullmatch(r"\*{4} \*{4} \d{4}", row["aadhaar"]), row
+                    assert row["phone"] is None  # no rule: withheld
+                source = f"SELECT * FROM {dataset.schema}.{people} LIMIT 1"
+                assert _refused(reader, source) == DENIED
+
         # After real use the application role still cannot rewrite its audit trail.
         with instance.connect_as("ps_app", "APP_DATABASE_PASSWORD", instance.control_db) as app:
             assert app.execute("SELECT count(*) FROM audit_events").fetchone()[0] > 5

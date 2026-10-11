@@ -113,12 +113,13 @@ describe('workspace sessions', () => {
 });
 
 describe('dashboard and navigation', () => {
-  it('shows all nine routes and labels unimplemented features honestly', async () => {
+  it('shows an administrator all ten routes and labels unimplemented features honestly', async () => {
     mockApi(true);
     const visitor = userEvent.setup({ delay: null });
     render(<App />);
     const nav = await screen.findByRole('navigation', { name: 'Main navigation' });
-    expect(nav.querySelectorAll('a')).toHaveLength(9);
+    // Nine pages for everyone, plus Users for administrators (covered in Users.test.tsx).
+    expect(nav.querySelectorAll('a')).toHaveLength(10);
     await visitor.click(screen.getByRole('link', { name: 'Masking Policies' }));
     expect(await screen.findByRole('heading', { name: /Masking Policies/ })).toBeInTheDocument();
     expect(screen.getByText(/Create, preview, approve, and deploy/)).toBeInTheDocument();

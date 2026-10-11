@@ -16,7 +16,7 @@ does all of it.
 | API | the same web service |
 | Scans, classification and deployment jobs | the same web service, in the background |
 | PrivacyShield's own data (users, scans, policies, audit log) | the free Postgres, database `privacyshield` |
-| The synthetic "enterprise" data that gets scanned and masked | the same Postgres, a second database `enterprise_demo` |
+| The synthetic data that gets scanned and masked | the same Postgres, three more databases: `enterprise_demo`, `hospital_demo` and `university_demo` |
 
 > **Status.** Everything the service does at startup was run against a real
 > PostgreSQL server with the same kind of restricted admin user Render provides,
@@ -71,7 +71,7 @@ different region cannot be reached by its internal address.
 1. In the dashboard click **New** (top right), then **Postgres**.
 2. Fill in the form:
    - **Name**: `privacyshield-db`
-   - **Database**: `privacyshield` (anything except `enterprise_demo`)
+   - **Database**: `privacyshield` (anything except `enterprise_demo`, `hospital_demo` and `university_demo`)
    - **User**: leave empty
    - **Region**: the region from Step 1
    - **PostgreSQL Version**: `16` (the version this was tested with; if 16 is
@@ -152,10 +152,14 @@ To change the health check: scroll to **Health Checks**, click **Edit**, type
 
    ```text
    INFO Bootstrap: creating database enterprise_demo
-   INFO Bootstrap: creating the synthetic demo tables
+   INFO Bootstrap: creating the synthetic enterprise tables
+   INFO Bootstrap: demo database hospital_demo is ready
+   INFO Bootstrap: demo database university_demo is ready
    INFO Bootstrap complete.
    INFO Administrator created
    INFO Demo connection registered: enterprise_demo on ...
+   INFO Demo connection registered: hospital_demo on ...
+   INFO Demo connection registered: university_demo on ...
    INFO Serving frontend from /app/static, jobs run in-process, listening on 0.0.0.0:10000
    ```
 
@@ -169,8 +173,9 @@ it in [Troubleshooting](#troubleshooting).
 1. Open the service's address (shown under its name, ending in
    `.onrender.com`).
 2. Sign in with the administrator email and password from Step 4.
-3. Open **Connections**. A connection called **Synthetic enterprise** is
-   already there. Nothing has to be typed in.
+3. Open **Connections**. Three connections are already there, each a separate
+   synthetic database: **Synthetic enterprise**, **Synthetic hospital** and
+   **Synthetic university**. Nothing has to be typed in.
 4. Click **Discover**, then start a **Scan**. Wait for it to finish (a few
    minutes on the free plan), then look at the findings, create a masking
    policy, approve it and deploy it.
@@ -245,10 +250,12 @@ backend with the built files in `/app/static`. Its command is
    `CONTROL_ADMIN_URL`, derives every secret from `APP_SECRET`, creates the
    roles `ps_migrator`, `ps_app`, `ps_scanner`, `ps_deployer`, `ps_view_owner`
    and `ps_reader`, creates the `enterprise_demo` database with its synthetic
-   tables, hands the control database to `ps_migrator`, and applies migrations.
+   tables, then `hospital_demo` and `university_demo` the same way (a failure
+   in either of those two is logged and startup continues without it), hands the control database to `ps_migrator`, and applies migrations.
    It is idempotent.
 2. `python -m app.render_seed` creates the administrator and registers the
-   "Synthetic enterprise" connection through the application's own models and
+   "Synthetic enterprise", "Synthetic hospital" and "Synthetic university"
+   connections through the application's own models and
    credential encryption.
 3. The provisioning credentials are removed from the environment and `uvicorn`
    starts on `0.0.0.0:$PORT` with `JOB_RUNNER=inline` and

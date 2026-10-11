@@ -151,6 +151,10 @@ def main() -> None:
     demo = next((c for c in connections if c["name"] == "Synthetic enterprise"), None)
     check(demo is not None and demo["database_name"] == "enterprise_demo",
           "the demo connection 'Synthetic enterprise' is registered")
+    for name, database in (("Synthetic hospital", "hospital_demo"),
+                           ("Synthetic university", "university_demo")):
+        check(any(c["name"] == name and c["database_name"] == database for c in connections),
+              f"the demo connection '{name}' is registered")
     check(not any("password" in key for key in demo), "no credential is returned")
     tested = client.json("POST", f"/api/v1/connections/{demo['id']}/test", {"schemas": ["enterprise"]})
     check(tested["table_count"] >= 4, f"the scanner role reaches the demo database ({tested['table_count']} tables)")
