@@ -69,6 +69,13 @@ def _table_columns(
     return None
 
 
+def policy_catalog_columns(db: Session, policy: MaskingPolicy) -> dict[str, dict]:
+    """Catalog metadata for the policy's table, keyed by column name."""
+    snapshot = _snapshot_for_policy(db, policy)
+    columns = _table_columns(snapshot, policy.schema_name, policy.table_name) if snapshot else None
+    return {column["name"]: column for column in columns or []}
+
+
 def build_plan(db: Session, policy: MaskingPolicy) -> CompiledPlan:
     """Rebuild the compiled plan for a policy from its saved schema and rules."""
     snapshot = _snapshot_for_policy(db, policy)

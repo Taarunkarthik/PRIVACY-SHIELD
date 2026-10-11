@@ -10,8 +10,10 @@ from app.services.policies.compiler import (
     build_preview,
     catalog_columns_to_decisions,
     compile_plan,
+    compile_sample_query,
     view_name_for,
 )
+from app.services.policies.preview import SAMPLE_ROWS, sample_values
 from app.services.policies.service import PolicyFailure
 
 
@@ -183,3 +185,80 @@ def test_policy_failure_code():
     exc = PolicyFailure("SCHEMA_DRIFT")
     assert exc.code == "SCHEMA_DRIFT"
     assert str(exc) == "SCHEMA_DRIFT"
+
+
+@pytest.mark.parametrize(
+    ("action", "fragment"),
+    [
+        ("MASK_EMAIL", "left(\"contact\"::text, 1) || '***' || substring("),
+        ("MASK_PHONE", "'[0-9](?=([^0-9]*[0-9]){4})', '*', 'g')"),
+        ("MASK_ID", "'[A-Za-z0-9](?=([^A-Za-z0-9]*[A-Za-z0-9]){4})', '*', 'g')"),
+    ],
+)
+def test_compile_plan_format_masks_preserve_null_and_fail_closed(action, fragment):
+    columns = [
+        ColumnDecision(name="contact", data_type="text", action=action, source_column="contact")
+    ]
+    plan = compile_plan(source_schema="public", source_table="test", columns=columns)
+    assert fragment in plan.sql
+    assert 'CASE WHEN "contact" IS NULL THEN NULL' in plan.sql
+    # A value without the expected shape is replaced, never partially shown.
+    assert "ELSE '***' END AS \"contact\"" in plan.sql
+    # Bound parameters use %s, so compiled expressions must never contain one.
+    assert "%" not in plan.sql
+
+
+def test_format_masks_change_the_plan_fingerprint():
+    def fingerprint(action):
+        column = ColumnDecision(name="c", data_type="text", action=action, source_column="c")
+        return compile_plan(source_schema="s", source_table="t", columns=[column]).plan_hash
+
+    hashes = {fingerprint(a) for a in ("PARTIAL", "MASK_EMAIL", "MASK_PHONE", "MASK_ID")}
+    assert len(hashes) == 4
+
+
+def test_sample_query_reads_only_bound_values():
+    columns = [
+        ColumnDecision(name="id", data_type="bigint", action="KEEP", source_column="id"),
+        ColumnDecision(name="email", data_type="text", action="MASK_EMAIL", source_column="email"),
+    ]
+    query = compile_sample_query(columns, 2)
+    assert query.count("%s") == 4
+    row = "(%s::bigint, %s::text)"
+    assert f'(VALUES {row}, {row}) AS src("id", "email")' in query
+    assert '"id"::text AS before_0' in query and "AS after_1" in query
+    # The only relation in the FROM clause is the literal VALUES list.
+    assert query.count(" FROM ") == 1
+    with pytest.raises(CompileError):
+        compile_sample_query(columns, 0)
+    with pytest.raises(CompileError):
+        compile_sample_query([], 1)
+    with pytest.raises(CompileError):
+        compile_sample_query(
+            [ColumnDecision(name="x", data_type="text); DROP", action="KEEP", source_column="x")],
+            1,
+        )
+
+
+@pytest.mark.parametrize(
+    ("column", "action", "first"),
+    [
+        ({"name": "email", "udt_name": "text"}, "KEEP", "priya.sharma@example.com"),
+        ({"name": "contact", "udt_name": "varchar"}, "MASK_EMAIL", "priya.sharma@example.com"),
+        ({"name": "mobileNumber", "udt_name": "text"}, "KEEP", "+91 98765 43210"),
+        ({"name": "phone", "udt_name": "int8"}, "MASK_PHONE", "919876543210"),
+        ({"name": "pan", "udt_name": "text"}, "MASK_ID", "ABCPK1234F"),
+        ({"name": "reference", "udt_name": "text"}, "MASK_ID", "ACC0012345678901"),
+        ({"name": "full_name", "udt_name": "text"}, "REDACT", "Priya Sharma"),
+        ({"name": "company", "udt_name": "text"}, "KEEP", "Sample text 1"),
+        ({"name": "id", "udt_name": "int4"}, "KEEP", "1001"),
+        ({"name": "email", "udt_name": "int4"}, "KEEP", "1001"),
+        ({"name": "balance", "udt_name": "numeric"}, "KEEP", "2500.75"),
+        ({"name": "tags", "udt_name": "_text"}, "KEEP", None),
+        ({}, "NULLIFY", None),
+    ],
+)
+def test_sample_values_are_fabricated_from_type_name_and_action(column, action, first):
+    values = sample_values(column, action)
+    assert len(values) == SAMPLE_ROWS
+    assert values[0] == first

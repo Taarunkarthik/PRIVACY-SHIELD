@@ -61,6 +61,21 @@ def deployer_session(record: DatabaseConnection) -> Iterator[psycopg.Connection]
         raise DiscoveryError(502, "Target database connection or deployment failed") from None
 
 
+def read_access(target, role: str, schema: str, relation: str) -> bool | None:
+    """Whether ``role`` may read any part of a relation; ``None`` if it is absent."""
+    row = target.execute(
+        """
+        SELECT pg_catalog.has_table_privilege(%(role)s, c.oid, 'SELECT')
+               OR pg_catalog.has_any_column_privilege(%(role)s, c.oid, 'SELECT') AS readable
+        FROM pg_catalog.pg_class c
+        JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = %(schema)s AND c.relname = %(relation)s
+        """,
+        {"role": role, "schema": schema, "relation": relation},
+    ).fetchone()
+    return None if row is None else bool(row["readable"])
+
+
 def run_deployment(deployment_id: UUID) -> None:
     """Execute or reconcile a policy deployment against the target database."""
     # A single worker holds the per-deployment advisory lock; duplicates exit.
@@ -124,6 +139,7 @@ def _run_deployment_locked(deployment_id: UUID) -> None:
             "plan_hash": plan.plan_hash,
             "deployed_at": datetime.now(UTC).isoformat(),
             "reconciled": reconciled,
+            "access_verified": True,
         },
     )
 
@@ -147,11 +163,31 @@ def _execute_target(deployment_id: UUID, connection: DatabaseConnection, plan) -
             if existing["plan_hash"] != plan.plan_hash:
                 raise DeploymentTargetError("RECEIPT_CONFLICT")
             return True  # Already applied: idempotent success.
-        for statement in plan.statements:
-            target.execute(statement)
-        # The reader sees only approved views; grant is idempotent.
         view = f"{quote_ident(plan.view_schema)}.{quote_ident(plan.view_name)}"
+        for statement in plan.statements:
+            try:
+                # A savepoint, so a refused replacement does not abort the deployment.
+                with target.transaction():
+                    target.execute(statement)
+            except psycopg.errors.InvalidTableDefinition:
+                # CREATE OR REPLACE VIEW cannot change an existing column's type,
+                # which happens when a newer version masks a column that an older
+                # one kept. Recreate the view instead. Both steps commit together,
+                # so readers never see it missing, and DROP without CASCADE still
+                # refuses if anything else depends on the view.
+                target.execute(f"DROP VIEW {view}")
+                target.execute(statement)
+        # The reader sees only approved views; grant is idempotent.
         target.execute(f"GRANT SELECT ON {view} TO {quote_ident(VIEW_READER_ROLE)}")
+        # Verify the resulting access before committing: the reader must reach
+        # the masked view and must have no path to the unmasked source table.
+        # A failure here rolls the view back with the rest of the transaction.
+        for schema, relation, expected in (
+            (plan.view_schema, plan.view_name, True),
+            (plan.source_schema, plan.source_table, False),
+        ):
+            if read_access(target, VIEW_READER_ROLE, schema, relation) is not expected:
+                raise DeploymentTargetError("ACCESS_VERIFICATION_FAILED")
         target.execute(
             "INSERT INTO privacyshield_private.deployment_receipts (deployment_id, plan_hash) "
             "VALUES (%s, %s)",

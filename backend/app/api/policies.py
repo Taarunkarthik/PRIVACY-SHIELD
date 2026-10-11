@@ -16,7 +16,11 @@ from app.schemas.policies import (
     PolicyPage,
     PolicyPreview,
     PolicyResponse,
+    PolicySamples,
+    PolicySuggestions,
+    ProtectedOutput,
 )
+from app.services.policies.preview import illustrative_samples, protected_output
 from app.services.policies.service import (
     PolicyFailure,
     approve_policy,
@@ -30,6 +34,7 @@ from app.services.policies.service import (
     reject_policy,
     submit_policy,
 )
+from app.services.policies.suggestions import suggest_rules
 
 router = APIRouter(tags=["Masking policies"])
 
@@ -45,6 +50,8 @@ def _handle_failure(exc: PolicyFailure) -> None:
         "RECONCILIATION_PENDING": 503,
         "ATTEMPT_LIMIT_EXCEEDED": 409,
         "POLICY_NOT_APPROVED": 409,
+        "POLICY_NOT_DEPLOYED": 409,
+        "ACCESS_VERIFICATION_FAILED": 409,
         "POLICY_NOT_FOUND": 404,
         "INVALID_TRANSITION": 409,
         "INSUFFICIENT_PERMISSIONS": 403,
@@ -87,6 +94,29 @@ def create_new_policy(
     except PolicyFailure as exc:
         _handle_failure(exc)
     return get_policy(db, policy.id)
+
+
+# Declared before /policies/{policy_id} so the literal path is matched first.
+@router.get("/policies/suggestions", response_model=PolicySuggestions)
+def get_policy_suggestions(
+    connection_id: UUID,
+    snapshot_id: UUID,
+    schema_name: str = Query(min_length=1, max_length=63),
+    table_name: str = Query(min_length=1, max_length=63),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> PolicySuggestions:
+    """Suggested rules for a table from the latest completed scan; advisory only."""
+    try:
+        return suggest_rules(
+            db,
+            connection_id=connection_id,
+            snapshot_id=snapshot_id,
+            schema_name=schema_name,
+            table_name=table_name,
+        )
+    except PolicyFailure as exc:
+        _handle_failure(exc)
 
 
 @router.get("/policies/{policy_id}", response_model=PolicyResponse)
@@ -165,6 +195,32 @@ def preview_policy(
 ) -> PolicyPreview:
     try:
         return get_policy_preview(db, policy_id)
+    except PolicyFailure as exc:
+        _handle_failure(exc)
+
+
+@router.get("/policies/{policy_id}/preview/samples", response_model=PolicySamples)
+def preview_policy_samples(
+    policy_id: UUID,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> PolicySamples:
+    """Before/after illustration on fabricated values; reads no source rows."""
+    try:
+        return illustrative_samples(db, policy_id)
+    except PolicyFailure as exc:
+        _handle_failure(exc)
+
+
+@router.get("/policies/{policy_id}/protected-output", response_model=ProtectedOutput)
+def get_protected_output(
+    policy_id: UUID,
+    user: User = Depends(require_roles("ADMIN")),
+    db: Session = Depends(get_db),
+) -> ProtectedOutput:
+    """A few rows through the deployed view, with the reader role's access facts."""
+    try:
+        return protected_output(db, user, policy_id)
     except PolicyFailure as exc:
         _handle_failure(exc)
 

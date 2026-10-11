@@ -267,7 +267,8 @@ class PolicyRule(Entity, Base):
     __table_args__ = (
         UniqueConstraint("policy_id", "column_name"),
         CheckConstraint(
-            "action IN ('KEEP','REDACT','PARTIAL','PSEUDONYMIZE','NULLIFY','RESTRICT')",
+            "action IN ('KEEP','REDACT','PARTIAL','MASK_EMAIL','MASK_PHONE','MASK_ID',"
+            "'PSEUDONYMIZE','NULLIFY','RESTRICT')",
             name="valid_action",
         ),
     )

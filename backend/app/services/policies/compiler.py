@@ -18,6 +18,9 @@ VIEW_READER_ROLE = "ps_reader"
 MAX_IDENTIFIER = 63
 _DOMAIN_PATTERN = re.compile(r"^[a-z0-9_]{1,60}$")
 _DATA_TYPE_PATTERN = re.compile(r"^[A-Za-z0-9_ .,()\[\]]{1,96}$")
+# Shown when a value does not have the shape its mask expects. Nothing from the
+# source value is revealed in that case (fail closed).
+MASK_FALLBACK = "***"
 
 
 class CompileError(ValueError):
@@ -81,27 +84,90 @@ def _pseudonym_expr(domain: str, source_column: str) -> str:
     return f"encode(extensions.hmac({source}, {key}, 'sha256'), 'hex')"
 
 
-def _compile_column_expr(decision: ColumnDecision) -> str:
-    """Generate the explicit projection expression for one column."""
+def _mask_email_expr(source: str) -> str:
+    """Keep the first character and the domain: ``c***@example.com``.
+
+    Only a value with exactly one ``@`` and no whitespace is treated as an
+    address. Anything else is replaced entirely, so free text stored in an
+    email column is never partially exposed.
+    """
+    text = f"{source}::text"
+    return (
+        f"CASE WHEN {source} IS NULL THEN NULL "
+        f"WHEN {text} ~ '^[^@[:space:]]+@[^@[:space:]]+$' "
+        f"THEN left({text}, 1) || '***' || substring({text} from '@.*$') "
+        f"ELSE '{MASK_FALLBACK}' END"
+    )
+
+
+def _mask_phone_expr(source: str) -> str:
+    """Mask every digit except the last four, keeping the punctuation.
+
+    ``+91 90000 00001`` becomes ``+** ***** *0001``. A value containing letters,
+    or fewer than eight digits, is replaced entirely.
+    """
+    text = f"{source}::text"
+    return (
+        f"CASE WHEN {source} IS NULL THEN NULL "
+        f"WHEN {text} ~ '^[0-9+(). -]{{8,32}}$' "
+        f"AND length(regexp_replace({text}, '[^0-9]', '', 'g')) >= 8 "
+        f"THEN regexp_replace({text}, '[0-9](?=([^0-9]*[0-9]){{4}})', '*', 'g') "
+        f"ELSE '{MASK_FALLBACK}' END"
+    )
+
+
+def _mask_id_expr(source: str) -> str:
+    """Mask letters and digits except the last four, keeping separators.
+
+    Suits PAN, Aadhaar, card and account numbers: ``2345 6789 0001`` becomes
+    ``**** **** 0001`` and ``ABCDE1234F`` becomes ``******234F``. A value without
+    a digit, with other characters, or with fewer than eight letters and digits
+    is replaced entirely.
+    """
+    text = f"{source}::text"
+    return (
+        f"CASE WHEN {source} IS NULL THEN NULL "
+        f"WHEN {text} ~ '^[A-Za-z0-9 ./-]{{8,64}}$' AND {text} ~ '[0-9]' "
+        f"AND length(regexp_replace({text}, '[^A-Za-z0-9]', '', 'g')) >= 8 "
+        f"THEN regexp_replace("
+        f"{text}, '[A-Za-z0-9](?=([^A-Za-z0-9]*[A-Za-z0-9]){{4}})', '*', 'g') "
+        f"ELSE '{MASK_FALLBACK}' END"
+    )
+
+
+_FORMAT_MASKS = {
+    "MASK_EMAIL": _mask_email_expr,
+    "MASK_PHONE": _mask_phone_expr,
+    "MASK_ID": _mask_id_expr,
+}
+
+
+def column_expression(decision: ColumnDecision) -> str:
+    """Generate the bare projection expression for one column (no alias)."""
     source = quote_ident(decision.source_column or decision.name)
-    target = quote_ident(decision.name)
     if decision.action == "KEEP":
-        return f"  {source} AS {target}"
+        return source
     if decision.action in ("NULLIFY", "RESTRICT"):
         # No value is exposed; keep the declared type so consumers see NULL.
-        return f"  NULL::{decision.data_type} AS {target}"
+        return f"NULL::{decision.data_type}"
     if decision.action == "REDACT":
-        return f"  CASE WHEN {source} IS NULL THEN NULL ELSE '[REDACTED]' END AS {target}"
+        return f"CASE WHEN {source} IS NULL THEN NULL ELSE '[REDACTED]' END"
     if decision.action == "PARTIAL":
         return (
-            f"  CASE WHEN {source} IS NULL THEN NULL "
-            f"ELSE '***' || right({source}::text, 4) END AS {target}"
+            f"CASE WHEN {source} IS NULL THEN NULL "
+            f"ELSE '***' || right({source}::text, 4) END"
         )
+    if decision.action in _FORMAT_MASKS:
+        return _FORMAT_MASKS[decision.action](source)
     if decision.action == "PSEUDONYMIZE":
         domain = decision.pseudonym_domain or "default"
-        expr = _pseudonym_expr(domain, decision.source_column or decision.name)
-        return f"  {expr} AS {target}"
+        return _pseudonym_expr(domain, decision.source_column or decision.name)
     raise CompileError(f"Unsupported action: {decision.action}")
+
+
+def _compile_column_expr(decision: ColumnDecision) -> str:
+    """Generate the explicit, aliased projection for one column."""
+    return f"  {column_expression(decision)} AS {quote_ident(decision.name)}"
 
 
 def _validate(decision: ColumnDecision) -> None:
@@ -171,6 +237,32 @@ def compile_plan(
         sql=statement,
         plan_hash=plan_hash,
     )
+
+
+def compile_sample_query(columns: list[ColumnDecision], row_count: int) -> str:
+    """Build a query that runs the plan's expressions over supplied literal rows.
+
+    The source is a ``VALUES`` list of bound parameters, never a table, so the
+    result shows exactly what the deployed view would produce for those inputs
+    without reading a single source row. Each output row holds the text form of
+    every input followed by the text form of every masked expression.
+    """
+    if not columns or not 1 <= row_count <= 10:
+        raise CompileError("A sample query needs columns and between 1 and 10 rows")
+    for decision in columns:
+        _validate(decision)
+    names = ", ".join(quote_ident(c.source_column or c.name) for c in columns)
+    row = "(" + ", ".join(f"%s::{c.data_type}" for c in columns) + ")"
+    values = ", ".join([row] * row_count)
+    # Positional aliases keep every output column distinct for dict-style rows.
+    before = [
+        f"{quote_ident(c.source_column or c.name)}::text AS before_{index}"
+        for index, c in enumerate(columns)
+    ]
+    after = [
+        f"({column_expression(c)})::text AS after_{index}" for index, c in enumerate(columns)
+    ]
+    return f"SELECT {', '.join(before + after)} FROM (VALUES {values}) AS src({names})"
 
 
 def build_preview(

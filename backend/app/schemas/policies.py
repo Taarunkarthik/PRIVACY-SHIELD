@@ -5,7 +5,17 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-PolicyAction = Literal["KEEP", "REDACT", "PARTIAL", "PSEUDONYMIZE", "NULLIFY", "RESTRICT"]
+PolicyAction = Literal[
+    "KEEP",
+    "REDACT",
+    "PARTIAL",
+    "MASK_EMAIL",
+    "MASK_PHONE",
+    "MASK_ID",
+    "PSEUDONYMIZE",
+    "NULLIFY",
+    "RESTRICT",
+]
 _DOMAIN_PATTERN = re.compile(r"^[a-z0-9_]{1,60}$")
 PolicyStatus = Literal["DRAFT", "PENDING_APPROVAL", "APPROVED", "REJECTED", "DEPLOYED", "FAILED"]
 DeploymentStatus = Literal["QUEUED", "RUNNING", "RECONCILING", "COMPLETED", "FAILED"]
@@ -96,6 +106,71 @@ class PolicyPreview(BaseModel):
     view_name: str
     columns: list[PolicyPreviewColumn]
     sql: str
+
+
+class SampleColumn(BaseModel):
+    name: str
+    data_type: str
+    action: PolicyAction
+
+
+class PolicySamples(BaseModel):
+    """Compiled expressions applied to fabricated inputs; never source rows."""
+
+    policy_id: UUID
+    status: Literal["OK", "UNAVAILABLE"]
+    source: Literal["FABRICATED"] = "FABRICATED"
+    columns: list[SampleColumn]
+    before: list[list[str | None]] = []
+    after: list[list[str | None]] = []
+
+
+class AccessCheck(BaseModel):
+    reader_role: str
+    reader_can_read_view: bool
+    reader_can_read_source: bool
+
+
+class ProtectedOutput(BaseModel):
+    """Rows read through the deployed view: what the approved policy exposes."""
+
+    policy_id: UUID
+    view_schema: str
+    view_name: str
+    source_schema: str
+    source_table: str
+    columns: list[SampleColumn]
+    rows: list[list[str | None]]
+    row_limit: int
+    access: AccessCheck
+
+
+class RuleSuggestion(BaseModel):
+    """A starting point for one column; a person still decides every rule."""
+
+    column_name: str
+    data_type: str
+    # DETECTOR: pattern evidence from the scan. AI: advisory classification of a
+    # column the detectors did not flag. NO_FINDINGS: scanned, nothing found.
+    # NOT_SCANNED: no usable evidence, so no action is suggested.
+    source: Literal["DETECTOR", "AI", "NO_FINDINGS", "NOT_SCANNED"]
+    action: PolicyAction | None = None
+    category: str | None = None
+    confidence: float | None = None
+    sampled_rows: int = 0
+    matching_rows: int = 0
+    classification_id: UUID | None = None
+    ai_recommendation: str | None = None
+    ai_risk: str | None = None
+
+
+class PolicySuggestions(BaseModel):
+    connection_id: UUID
+    schema_name: str
+    table_name: str
+    scan_id: UUID | None
+    scanned_at: datetime | None
+    columns: list[RuleSuggestion]
 
 
 class DeployRequest(BaseModel):
