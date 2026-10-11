@@ -158,7 +158,7 @@ export function Settings() {
 
   return <div className="page-content settings-page">
     <div className="page-heading">
-      <div><p className="eyebrow">YOUR WORKSPACE</p><h1>Settings<span className="heading-dot">.</span></h1><p className="page-description">Manage workspace identity, data retention, and custom detection patterns.</p></div>
+      <div><h1>Settings<span className="heading-dot">.</span></h1><p className="page-description">Manage workspace identity, data retention, and custom detection patterns.</p></div>
       <button className="button secondary" onClick={() => setRevision((value) => value + 1)} disabled={loading}><RefreshCw size={15} /> Refresh</button>
     </div>
 
@@ -225,7 +225,7 @@ export function Settings() {
       </section>
 
       <section className="panel account-summary">
-        <div><p className="eyebrow">SIGNED-IN ACCOUNT</p><h2>{user?.email}</h2></div><span className="pill">{user?.role}</span>
+        <div><p className="account-label">Signed-in account</p><h2>{user?.email}</h2></div><span className="pill">{user?.role}</span>
       </section>
     </>}
   </div>;

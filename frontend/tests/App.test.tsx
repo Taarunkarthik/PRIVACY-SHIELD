@@ -174,8 +174,9 @@ describe('dashboard and navigation', () => {
     expect(screen.getByRole('meter', { name: 'Sensitive columns masked by a deployed policy' })).toHaveAttribute('aria-valuenow', '6');
     expect(screen.getByText('A column takes the highest risk level among the categories detected in it.')).toBeInTheDocument();
     expect(screen.getByText('Policy approved')).toBeInTheDocument();
-    // Every step of the workflow is delivered; none is labelled as planned.
-    expect(screen.getAllByText(/Available now/)).toHaveLength(3);
+    // The three-step journey panel is gone from the overview, and nothing is labelled as planned.
+    expect(screen.queryByText(/Available now/)).not.toBeInTheDocument();
+    expect(screen.queryByText('From visibility to protection')).not.toBeInTheDocument();
     expect(screen.queryByText(/Planned capability/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Masking policies are next/)).not.toBeInTheDocument();
   });

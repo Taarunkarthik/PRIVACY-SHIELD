@@ -1,18 +1,22 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
-import { ArrowRight, Check, ChevronLeft, ChevronRight, Eye, FileClock, LockKeyhole, Play, Plus, RefreshCw, Send, ShieldCheck, Sparkles, X } from 'lucide-react';
+import { ArrowRight, Check, ChevronLeft, ChevronRight, FileClock, Play, Plus, RefreshCw, Send, ShieldCheck, Sparkles, X } from 'lucide-react';
 import { api, ApiError } from '../api/client';
 import { useAuth } from '../api/auth';
 import type { Connection, SchemaSnapshot } from '../api/connections';
 import { classificationCategory } from '../api/classifications';
 import type { Policy, PolicyPage, PolicyPreview, PolicyAction, PolicySamples, PolicySuggestions, ProtectedOutput, RuleSuggestion } from '../api/policies';
 import { actionHint, actionLabel, policyStatusLabel } from '../api/policies';
+import { MaskReveal } from '../components/MaskReveal';
 
 const ACTIONS: PolicyAction[] = ['KEEP', 'MASK_EMAIL', 'MASK_PHONE', 'MASK_ID', 'PARTIAL', 'REDACT', 'PSEUDONYMIZE', 'NULLIFY', 'RESTRICT'];
 // The pseudonym key domain provisioned on the bundled demonstration target.
 const DEFAULT_PSEUDONYM_DOMAIN = 'demo';
 // The API accepts at most this many rules in one policy.
 const MAX_RULES = 200;
+
+// What the right-hand side shows for the selected policy.
+type PolicyView = 'rules' | 'preview' | 'output';
 
 export function Policies() {
   const { user } = useAuth();
@@ -38,6 +42,7 @@ export function Policies() {
   const previewRequest = useRef(0);
   const [output, setOutput] = useState<ProtectedOutput | null>(null);
   const [outputLoading, setOutputLoading] = useState(false);
+  const [view, setView] = useState<PolicyView>('rules');
   const connectionId = params.get('connection') || connections.find((c) => c.is_active)?.id || connections[0]?.id || '';
   const connection = connections.find((c) => c.id === connectionId);
   const selectedId = params.get('policy') || policies?.items[0]?.id || '';
@@ -146,10 +151,29 @@ export function Policies() {
   const shownSamples = ownSamples?.status === 'OK' ? ownSamples : null;
   const hasPseudonym = Boolean(shownSamples?.columns.some((col) => col.action === 'PSEUDONYMIZE'));
   const shownOutput = output && output.policy_id === selectedId ? output : null;
+  // Rows through the deployed view are for administrators, and exist only once a policy is deployed.
+  const canSeeOutput = canApprove && selected?.status === 'DEPLOYED';
+  const shownView: PolicyView = view === 'output' && !canSeeOutput ? 'rules' : view;
+
+  function selectPolicy(id: string) {
+    setView('rules');
+    setParams({ connection: connectionId, policy: id });
+  }
+
+  // Opening a tab loads what it shows, unless that is already on screen.
+  function openPreview(id: string) {
+    setView('preview');
+    if (!shownPreview && !previewLoading) void loadPreview(id);
+  }
+
+  function openOutput(id: string) {
+    setView('output');
+    if (!shownOutput && !outputLoading) void loadOutput(id);
+  }
 
   return <div className="page-content policies-page">
     <div className="page-heading">
-      <div><p className="eyebrow">PROTECTION WITH PURPOSE</p><h1>Masking Policies<span className="heading-dot">.</span></h1><p className="page-description">Create, preview, approve, and deploy data protection policies.</p></div>
+      <div><h1>Masking Policies<span className="heading-dot">.</span></h1><p className="page-description">Create, preview, approve, and deploy data protection policies.</p></div>
       <div className="heading-actions">
         {canManage && connection && <button className="button primary" onClick={() => setShowCreate(true)}><Plus size={15} /> New policy</button>}
         <Link className="button secondary" to="/deployments"><FileClock size={15} /> Deployments</Link>
@@ -161,14 +185,13 @@ export function Policies() {
 
     {!connectionsLoading && !connection && <section className="panel data-empty"><ShieldCheck size={34} strokeWidth={1.3} /><h2>No connections available</h2><p>Connect a database to start creating masking policies.</p><Link to="/connections" className="button secondary">View connections <ArrowRight size={14} /></Link></section>}
 
-    {connection && <>
+    {connection && <div className={`policy-workbench ${selected ? '' : 'no-selection'}`}>
       <section className="panel policy-list" aria-label="Policies">
-        <div className="panel-heading"><div><h2>Policies <span className="count-badge">{policies?.total ?? '—'}</span></h2><p>Protection policies for {connection.name}.</p></div><ShieldCheck size={19} className="muted" /></div>
+        <div className="panel-heading"><div><h2>Policies <span className="count-badge">{policies?.total ?? '—'}</span></h2><p>Protection policies for {connection.name}.</p></div></div>
         {policiesLoading && !policies ? <div className="data-empty" role="status"><div className="loading-ring" /><p>Loading policies…</p></div>
           : policies && !policies.total ? <div className="data-empty"><ShieldCheck size={34} strokeWidth={1.3} /><h3>No policies yet</h3><p>{canManage ? 'Create your first masking policy to protect sensitive data.' : 'Policies will appear here once an administrator or analyst creates one.'}</p></div>
           : <div className="policy-items">{policies?.items.map((item) => (
-            <button type="button" className={`policy-row ${selectedId === item.id ? 'selected' : ''}`} key={item.id} onClick={() => setParams({ connection: connectionId, policy: item.id })} aria-pressed={selectedId === item.id}>
-              <span className="policy-icon"><ShieldCheck size={17} /></span>
+            <button type="button" className={`policy-row ${selectedId === item.id ? 'selected' : ''}`} key={item.id} onClick={() => selectPolicy(item.id)} aria-pressed={selectedId === item.id}>
               <span className="policy-info"><strong>{item.schema_name}.{item.table_name}</strong><small>v{item.version} · {item.rules.length} rules · {new Date(item.created_at).toLocaleDateString()}</small></span>
               <span className={`pill policy-status status-${item.status.toLowerCase().replace('_', '-')}`}>{policyStatusLabel[item.status]}</span>
               <ChevronRight size={15} />
@@ -182,87 +205,96 @@ export function Policies() {
           <span className={`pill policy-status status-${selected.status.toLowerCase().replace('_', '-')}`}>{policyStatusLabel[selected.status]}</span>
         </div>
 
-        <div className="policy-rules">
+        <div className="policy-toolbar">
+          {/* Toggle buttons rather than ARIA tabs: each keeps a plain button role and name. */}
+          <div className="policy-tabs" role="group" aria-label="Policy views">
+            <button type="button" className="policy-tab" aria-pressed={shownView === 'rules'} onClick={() => setView('rules')}>Rules <span className="count-badge">{selected.rules.length}</span></button>
+            <button type="button" className="policy-tab" aria-pressed={shownView === 'preview'} onClick={() => openPreview(selected.id)}>Preview</button>
+            {canSeeOutput && <button type="button" className="policy-tab" aria-pressed={shownView === 'output'} aria-label="View protected output" onClick={() => openOutput(selected.id)}>Protected output</button>}
+          </div>
+          <div className="policy-actions">
+            {canManage && selected.status === 'DRAFT' && <button className="button primary" disabled={actionLoading === selected.id} onClick={() => submitPolicy(selected.id)}><Send size={15} />{actionLoading === selected.id ? 'Submitting…' : 'Submit for approval'}</button>}
+            {canApprove && selected.status === 'PENDING_APPROVAL' && <>
+              <button className="button primary" disabled={actionLoading === selected.id} onClick={() => approvePolicy(selected.id)}><Check size={15} />{actionLoading === selected.id ? 'Approving…' : 'Approve'}</button>
+              <button className="button danger" disabled={actionLoading === selected.id} onClick={() => rejectPolicy(selected.id)}><X size={15} />{actionLoading === selected.id ? 'Rejecting…' : 'Reject'}</button>
+            </>}
+            {canApprove && (selected.status === 'APPROVED' || selected.status === 'FAILED') && <button className="button primary" disabled={actionLoading === selected.id} onClick={() => deployPolicy(selected.id)}><Play size={15} />{actionLoading === selected.id ? 'Deploying…' : 'Deploy'}</button>}
+          </div>
+        </div>
+
+        {shownView === 'rules' && <div className="policy-rules">
           <h3>Protection rules</h3>
           <div className="rules-table">
             <div className="rules-header"><span>Column</span><span>Action</span><span>Domain</span></div>
             {selected.rules.map((rule) => (
               <div className="rules-row" key={rule.column_name}>
                 <span className="rule-column">{rule.column_name}</span>
-                <span className={`pill action-${rule.action.toLowerCase().replace('_', '-')}`}>{actionLabel[rule.action]}</span>
+                <span><span className={`pill action-${rule.action.toLowerCase().replace('_', '-')}`}>{actionLabel[rule.action]}</span></span>
                 <span className="rule-domain">{rule.pseudonym_domain || '—'}</span>
               </div>
             ))}
           </div>
-        </div>
+        </div>}
 
-        <div className="policy-actions">
-          {canManage && selected.status === 'DRAFT' && <button className="button primary" disabled={actionLoading === selected.id} onClick={() => submitPolicy(selected.id)}><Send size={15} />{actionLoading === selected.id ? 'Submitting…' : 'Submit for approval'}</button>}
-          {canApprove && selected.status === 'PENDING_APPROVAL' && <>
-            <button className="button primary" disabled={actionLoading === selected.id} onClick={() => approvePolicy(selected.id)}><Check size={15} />{actionLoading === selected.id ? 'Approving…' : 'Approve'}</button>
-            <button className="button danger" disabled={actionLoading === selected.id} onClick={() => rejectPolicy(selected.id)}><X size={15} />{actionLoading === selected.id ? 'Rejecting…' : 'Reject'}</button>
-          </>}
-          {canApprove && (selected.status === 'APPROVED' || selected.status === 'FAILED') && <button className="button primary" disabled={actionLoading === selected.id} onClick={() => deployPolicy(selected.id)}><Play size={15} />{actionLoading === selected.id ? 'Deploying…' : 'Deploy'}</button>}
-          <button className="button secondary" disabled={previewLoading} onClick={() => loadPreview(selected.id)}><Eye size={15} />{previewLoading ? 'Loading…' : 'Preview'}</button>
-          {canApprove && selected.status === 'DEPLOYED' && <button className="button secondary" disabled={outputLoading} onClick={() => loadOutput(selected.id)}><LockKeyhole size={15} />{outputLoading ? 'Loading…' : 'View protected output'}</button>}
-        </div>
-      </section>}
+        {shownView === 'preview' && (shownPreview ? <section className="policy-preview" aria-label="Policy preview">
+          <div className="view-heading"><h3>Preview: {shownPreview.view_schema}.{shownPreview.view_name}</h3><p>Security-barrier view with {shownPreview.columns.length} columns.</p></div>
+          {shownSamples
+            ? <div className="table-scroll">
+              <table className="columns-table masking-table masking-preview">
+                <caption className="masking-caption">Each example value is run through the policy's real masking expression in PostgreSQL. The examples are invented: no rows are read from your database.{hasPseudonym && ' A pseudonym shown here is a stand-in of the same shape; real tokens are made with a secret key kept in the target database.'}</caption>
+                <thead><tr><th scope="col">Column</th><th scope="col">Action</th><th scope="col">Example value</th><th scope="col">After masking</th></tr></thead>
+                <tbody>{shownSamples.columns.map((col, index) => {
+                  const before = shownSamples.before[0]?.[index] ?? null;
+                  const after = shownSamples.after[0]?.[index] ?? null;
+                  return <tr className="preview-column" key={col.name}>
+                    <th scope="row">{col.name}<small className="masking-type">{col.data_type}</small></th>
+                    <td><span className={`pill action-${col.action.toLowerCase().replace('_', '-')}`}>{actionLabel[col.action]}</span></td>
+                    <td><MaskedCell value={before} exposed={before !== after} /></td>
+                    <td>{after !== null && before !== after ? <MaskReveal from={before} to={after} /> : <MaskedCell value={after} />}</td>
+                  </tr>;
+                })}</tbody>
+              </table>
+            </div>
+            : <div className="preview-columns">
+              {ownSamples?.status === 'UNAVAILABLE' && <p className="rules-editor-note">Example values are not available right now because the target database could not be used. The compiled plan below is unaffected.</p>}
+              {shownPreview.columns.map((col) => (
+                <div className="preview-column" key={col.name}>
+                  <span className="preview-col-name">{col.name}</span>
+                  <span className="preview-col-type">{col.data_type}</span>
+                  <span className={`pill action-${col.action.toLowerCase().replace('_', '-')}`}>{actionLabel[col.action]}</span>
+                </div>
+              ))}
+            </div>}
+          <details className="preview-sql"><summary>View SQL</summary><pre>{shownPreview.sql}</pre></details>
+        </section> : <div className="data-empty view-pending" role="status">{previewLoading ? <><div className="loading-ring" /><p>Compiling the preview…</p></> : <p>The preview could not be loaded. Choose Preview to try again.</p>}</div>)}
 
-      {shownPreview && <section className="panel policy-preview" aria-label="Policy preview">
-        <div className="panel-heading"><div><h2>Preview: {shownPreview.view_schema}.{shownPreview.view_name}</h2><p>Security-barrier view with {shownPreview.columns.length} columns.</p></div><Eye size={19} className="muted" /></div>
-        {shownSamples
-          ? <div className="table-scroll">
-            <table className="columns-table masking-table">
-              <caption className="masking-caption">Each example value is run through the policy's real masking expression in PostgreSQL. The examples are invented: no rows are read from your database.{hasPseudonym && ' A pseudonym shown here is a stand-in of the same shape; real tokens are made with a secret key kept in the target database.'}</caption>
-              <thead><tr><th scope="col">Column</th><th scope="col">Action</th><th scope="col">Example value</th><th scope="col">After masking</th></tr></thead>
-              <tbody>{shownSamples.columns.map((col, index) => (
-                <tr className="preview-column" key={col.name}>
-                  <th scope="row">{col.name}<small className="masking-type">{col.data_type}</small></th>
-                  <td><span className={`pill action-${col.action.toLowerCase().replace('_', '-')}`}>{actionLabel[col.action]}</span></td>
-                  <td><MaskedCell value={shownSamples.before[0]?.[index] ?? null} /></td>
-                  <td><MaskedCell value={shownSamples.after[0]?.[index] ?? null} changed={shownSamples.before[0]?.[index] !== shownSamples.after[0]?.[index]} /></td>
-                </tr>
+        {shownView === 'output' && (shownOutput ? <section className="policy-preview" aria-label="Protected output">
+          <div className="view-heading"><h3>Protected output: {shownOutput.view_schema}.{shownOutput.view_name}</h3><p>The first {shownOutput.rows.length} rows as the <code>{shownOutput.access.reader_role}</code> role sees them through the deployed view.</p></div>
+          <ul className="access-facts">
+            <li className={shownOutput.access.reader_can_read_view ? 'access-ok' : 'access-bad'}>{shownOutput.access.reader_can_read_view ? <Check size={15} /> : <X size={15} />}<span><code>{shownOutput.access.reader_role}</code> {shownOutput.access.reader_can_read_view ? 'can read' : 'cannot read'} the masked view</span></li>
+            <li className={shownOutput.access.reader_can_read_source ? 'access-bad' : 'access-ok'}>{shownOutput.access.reader_can_read_source ? <X size={15} /> : <Check size={15} />}<span><code>{shownOutput.access.reader_role}</code> {shownOutput.access.reader_can_read_source ? 'can still read' : 'cannot read'} the source table {shownOutput.source_schema}.{shownOutput.source_table}</span></li>
+          </ul>
+          <div className="table-scroll">
+            <table className="columns-table masking-table masking-output">
+              <thead><tr>{shownOutput.columns.map((col) => <th scope="col" key={col.name}>{col.name}<small className="masking-type">{actionLabel[col.action]}</small></th>)}</tr></thead>
+              <tbody>{shownOutput.rows.map((row, rowIndex) => (
+                <tr key={rowIndex}>{row.map((value, index) => <td key={shownOutput.columns[index].name}><MaskedCell value={value} changed={shownOutput.columns[index].action !== 'KEEP'} /></td>)}</tr>
               ))}</tbody>
             </table>
           </div>
-          : <div className="preview-columns">
-            {ownSamples?.status === 'UNAVAILABLE' && <p className="rules-editor-note">Example values are not available right now because the target database could not be used. The compiled plan below is unaffected.</p>}
-            {shownPreview.columns.map((col) => (
-              <div className="preview-column" key={col.name}>
-                <span className="preview-col-name">{col.name}</span>
-                <span className="preview-col-type">{col.data_type}</span>
-                <span className={`pill action-${col.action.toLowerCase().replace('_', '-')}`}>{actionLabel[col.action]}</span>
-              </div>
-            ))}
-          </div>}
-        <details className="preview-sql"><summary>View SQL</summary><pre>{shownPreview.sql}</pre></details>
+          {!shownOutput.rows.length && <p className="masking-empty">The source table has no rows yet.</p>}
+        </section> : <div className="data-empty view-pending" role="status">{outputLoading ? <><div className="loading-ring" /><p>Reading through the deployed view…</p></> : <p>The protected output could not be loaded. Choose Protected output to try again.</p>}</div>)}
       </section>}
-
-      {shownOutput && <section className="panel policy-preview" aria-label="Protected output">
-        <div className="panel-heading"><div><h2>Protected output: {shownOutput.view_schema}.{shownOutput.view_name}</h2><p>The first {shownOutput.rows.length} rows as the <code>{shownOutput.access.reader_role}</code> role sees them through the deployed view.</p></div><LockKeyhole size={19} className="muted" /></div>
-        <ul className="access-facts">
-          <li className={shownOutput.access.reader_can_read_view ? 'access-ok' : 'access-bad'}>{shownOutput.access.reader_can_read_view ? <Check size={14} /> : <X size={14} />}<span><code>{shownOutput.access.reader_role}</code> {shownOutput.access.reader_can_read_view ? 'can read' : 'cannot read'} the masked view</span></li>
-          <li className={shownOutput.access.reader_can_read_source ? 'access-bad' : 'access-ok'}>{shownOutput.access.reader_can_read_source ? <X size={14} /> : <Check size={14} />}<span><code>{shownOutput.access.reader_role}</code> {shownOutput.access.reader_can_read_source ? 'can still read' : 'cannot read'} the source table {shownOutput.source_schema}.{shownOutput.source_table}</span></li>
-        </ul>
-        <div className="table-scroll">
-          <table className="columns-table masking-table">
-            <thead><tr>{shownOutput.columns.map((col) => <th scope="col" key={col.name}>{col.name}<small className="masking-type">{actionLabel[col.action]}</small></th>)}</tr></thead>
-            <tbody>{shownOutput.rows.map((row, rowIndex) => (
-              <tr key={rowIndex}>{row.map((value, index) => <td key={shownOutput.columns[index].name}><MaskedCell value={value} changed={shownOutput.columns[index].action !== 'KEEP'} /></td>)}</tr>
-            ))}</tbody>
-          </table>
-        </div>
-        {!shownOutput.rows.length && <p className="masking-empty">The source table has no rows yet.</p>}
-      </section>}
-    </>}
+    </div>}
 
     {showCreate && <CreatePolicyDialog connectionId={connectionId} onClose={() => setShowCreate(false)} onError={setCreateError} onCreated={(id) => { setShowCreate(false); setParams({ connection: connectionId, policy: id }); setRevision((v) => v + 1); }} />}
   </div>;
 }
 
-function MaskedCell({ value, changed = false }: { value: string | null; changed?: boolean }) {
+/** One value in a before/after table: amber while it is still exposed, mint once a mask has changed it. */
+function MaskedCell({ value, changed = false, exposed = false }: { value: string | null; changed?: boolean; exposed?: boolean }) {
   if (value === null) return <span className="masked-null">NULL</span>;
-  return <code className={changed ? 'masked-value' : undefined}>{value}</code>;
+  return <code className={changed ? 'masked-value' : exposed ? 'exposed-value' : undefined}>{value}</code>;
 }
 
 function suggestionNote(suggestion: RuleSuggestion | undefined): string {

@@ -25,7 +25,7 @@ export function Deployments() {
 
   return <div className="page-content deployments-page">
     <div className="page-heading">
-      <div><p className="eyebrow">DEPLOYMENT HISTORY</p><h1>Deployments<span className="heading-dot">.</span></h1><p className="page-description">Track policy deployments and their outcomes.</p></div>
+      <div><h1>Deployments<span className="heading-dot">.</span></h1><p className="page-description">Track policy deployments and their outcomes.</p></div>
       <button className="button secondary" onClick={() => setRevision((v) => v + 1)} disabled={loading}><RefreshCw size={15} /> Refresh</button>
     </div>
     {error && <div className="error-box" role="alert">{error}</div>}
