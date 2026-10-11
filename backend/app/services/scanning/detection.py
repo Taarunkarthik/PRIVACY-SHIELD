@@ -9,6 +9,8 @@ import logging
 import re
 from functools import lru_cache
 
+from app.services.scanning.checks import PAN_HOLDER_TYPES, has_checksum_valid_aadhaar
+
 MAX_TEXT_LENGTH = 4096
 MAX_CONTEXT_LENGTH = 256
 ALLOWED_CATEGORIES = frozenset(
@@ -29,6 +31,10 @@ _EMPTY_VALUES = {"unknown", "none", "null", "n/a", "not available", "redacted"}
 
 # Operator-supplied patterns are compiled once per scan and capped. Their matches
 # use a fixed, bounded label namespace so no operator string becomes a category.
+# A number that passes the Aadhaar checksum is reported without needing the word
+# "Aadhaar" nearby. The score stays below 1: a checksum is not verification.
+CHECKSUM_VALID_SCORE = 0.85
+
 CUSTOM_PATTERN_LIMIT = 20
 CUSTOM_PATTERN_SCORE = 0.7
 CUSTOM_PATTERN_CATEGORIES = frozenset({"PII", "FINANCIAL", "HEALTH", "OTHER"})
@@ -91,7 +97,17 @@ def _analyzer():
             PatternRecognizer(
                 supported_entity="PAN_CANDIDATE",
                 name="IndianPanCandidateRecognizer",
-                patterns=[Pattern("PAN format candidate", r"\b[A-Z]{5}[0-9]{4}[A-Z]\b", 0.65)],
+                patterns=[
+                    # A valid holder-type letter in fourth place stands on its own.
+                    Pattern(
+                        "PAN structure candidate",
+                        rf"\b[A-Z]{{3}}[{PAN_HOLDER_TYPES}][A-Z][0-9]{{4}}[A-Z]\b",
+                        CHECKSUM_VALID_SCORE,
+                    ),
+                    # The bare shape also fits product and reference codes, so it
+                    # only clears the threshold when PAN context raises its score.
+                    Pattern("PAN format candidate", r"\b[A-Z]{5}[0-9]{4}[A-Z]\b", 0.3),
+                ],
                 context=["pan", "tax", "permanent"],
                 global_regex_flags=re.MULTILINE,
             ),
@@ -211,6 +227,10 @@ def detect_pii(
             categories[result.entity_type] = max(
                 categories.get(result.entity_type, 0.0), round(float(result.score), 4)
             )
+    if has_checksum_valid_aadhaar(bounded):
+        categories["AADHAAR_CANDIDATE"] = max(
+            categories.get("AADHAAR_CANDIDATE", 0.0), CHECKSUM_VALID_SCORE
+        )
     for label, pattern in patterns[:CUSTOM_PATTERN_LIMIT]:
         if pattern.search(bounded):
             categories[label] = max(categories.get(label, 0.0), CUSTOM_PATTERN_SCORE)

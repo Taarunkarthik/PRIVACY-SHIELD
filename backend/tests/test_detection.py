@@ -4,6 +4,7 @@ import logging
 
 import pytest
 
+from app.services.scanning.checks import has_checksum_valid_aadhaar, verhoeff_valid
 from app.services.scanning.detection import (
     ALLOWED_CATEGORIES,
     MAX_TEXT_LENGTH,
@@ -133,3 +134,58 @@ def test_text_and_metadata_are_independently_bounded():
 def test_non_text_error_does_not_echo_input():
     with pytest.raises(TypeError, match="^PII detector accepts text and a column name$"):
         detect_pii({"email": "synthetic.private@example.com"})
+
+
+@pytest.mark.parametrize(
+    ("digits", "valid"),
+    [
+        ("2363", True),  # The standard worked example: 236 takes check digit 3.
+        ("2364", False),
+        ("499118665246", True),
+        ("234567890124", True),
+        ("234567890123", False),
+        ("234567890214", False),  # Swapping two adjacent digits is always caught.
+        ("", False),
+        ("12a4", False),
+        ("١٢٣٤", False),  # Non-ASCII digits are not accepted.
+    ],
+)
+def test_verhoeff_check_digit(digits, valid):
+    assert verhoeff_valid(digits) is valid
+
+
+@pytest.mark.parametrize(
+    ("text", "found"),
+    [
+        ("2345 6789 0124", True),
+        ("2345-6789-0124", True),
+        ("ID 234567890124 on file", True),
+        ("2345 6789 0123", False),  # Wrong check digit.
+        ("1345 6789 0129", False),  # An Aadhaar never starts with 0 or 1.
+        ("2345 6789 0124 5678", False),  # Sixteen digits is a card, not an Aadhaar.
+        ("9999 2345 6789 0124", False),
+        ("x234567890124", False),
+        ("2345678901240", False),
+    ],
+)
+def test_checksum_valid_aadhaar_is_found_only_as_a_standalone_number(text, found):
+    assert has_checksum_valid_aadhaar(text) is found
+
+
+def test_checksum_valid_aadhaar_needs_no_context_word():
+    # A valid check digit is reported whatever the column is called...
+    assert detect_pii("2345 6789 0124", "id_proof_number")["AADHAAR_CANDIDATE"] == 0.85
+    assert "AADHAAR_CANDIDATE" in detect_pii("Customer gave 234567890124 as proof.", "notes")
+    # ...while a number that fails the checksum still needs Aadhaar context.
+    assert "AADHAAR_CANDIDATE" not in detect_pii("2345 6789 0123", "id_proof_number")
+    assert "AADHAAR_CANDIDATE" in detect_pii("2345 6789 0123", "aadhaar")
+    # A card number is not mistaken for an Aadhaar by its first twelve digits.
+    assert "AADHAAR_CANDIDATE" not in detect_pii("2345 6789 0124 5678", "reference")
+
+
+def test_pan_holder_type_letter_separates_a_pan_from_a_look_alike_code():
+    # Fourth letter P (person): reported without any PAN context.
+    assert detect_pii("ABCPK1234F", "document_ref")["PAN_CANDIDATE"] == 0.85
+    # Fourth letter D is not a holder type: a product code, unless context says PAN.
+    assert "PAN_CANDIDATE" not in detect_pii("ABCDE1234F", "sku")
+    assert "PAN_CANDIDATE" in detect_pii("ABCDE1234F", "pan")

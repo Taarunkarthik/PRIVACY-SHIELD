@@ -18,9 +18,17 @@ stable column list.
 | `KEEP` | `"col" AS "col"` | Pass-through, original type preserved |
 | `REDACT` | `CASE WHEN "col" IS NULL THEN NULL ELSE '[REDACTED]' END` | Text output; `NULL` preserved |
 | `PARTIAL` | `CASE WHEN "col" IS NULL THEN NULL ELSE '***' \|\| right("col"::text, 4) END` | Text output; last four characters retained |
+| `MASK_EMAIL` | `left(v,1) \|\| '***' \|\| <domain>` when `v` is one address, else `'***'` | `c***@example.com`; text output |
+| `MASK_PHONE` | every digit but the last four replaced by `*`, punctuation kept; else `'***'` | `+** ***** *0001`; needs 8+ digits and no letters |
+| `MASK_ID` | every letter and digit but the last four replaced by `*`, separators kept; else `'***'` | `**** **** 0001`, `******001F`; for PAN, Aadhaar, card and account numbers |
 | `PSEUDONYMIZE` | `encode(extensions.hmac(convert_to("col"::text,'UTF8'), key, 'sha256'),'hex')` | Deterministic, keyed, text output |
 | `NULLIFY` | `NULL::<type>` | Typed `NULL`; type preserved |
 | `RESTRICT` | `NULL::<type>` | No value exposed |
+
+The three format-aware masks fail closed. A value that does not have the shape
+the mask expects (free text in an email column, a phone field holding a name) is
+replaced entirely with `***`, so a wrongly chosen mask hides data instead of
+leaking part of it. `NULL` stays `NULL`.
 
 `PSEUDONYMIZE` reads its key from `privacyshield_private.pseudonym_keys` by
 domain. Equal values with the same domain produce equal pseudonyms; unrelated
@@ -43,6 +51,44 @@ deployment time; a mismatch blocks the deployment as schema or content drift.
 Identifier and data-type inputs are validated before interpolation. Pseudonym
 domains must match `^[a-z0-9_]{1,60}$`; column and view names must be simple
 identifiers. This prevents identifier or literal injection through policy input.
+
+## Suggested rules
+
+`GET /api/v1/policies/suggestions` proposes a rule per column for a table, from
+the latest completed scan of its connection:
+
+- A column with detector findings gets the mask for its most frequent category:
+  `MASK_EMAIL`, `MASK_PHONE`, `MASK_ID`, or `REDACT` for names and addresses. A
+  JSONB column gets `NULLIFY` and a free-text column gets `REDACT`, because a
+  format mask cannot handle either.
+- A column the detectors did not flag, but which has an advisory AI
+  classification, gets the mask for that classification.
+- A scanned column with no findings gets `KEEP`. A column that was not scanned,
+  or whose type the scanner cannot read, gets no suggestion and stays `NULL`
+  unless a person chooses otherwise.
+
+Each suggestion carries its evidence: source, category, and matching rows out of
+sampled rows. The policy editor shows that beside the column and applies the
+suggestions only when asked. A suggestion creates nothing; a person still
+creates, submits, approves and deploys the policy.
+
+## Preview with example values
+
+`GET /api/v1/policies/{id}/preview/samples` shows what a policy does before it is
+deployed. It fabricates three example values per column from the column's type,
+name and action, then runs the policy's compiled expressions over them on the
+target server:
+
+```sql
+SELECT "email"::text AS before_1, (<compiled expression>)::text AS after_1, ...
+FROM (VALUES ($1::bigint, $2::text, ...)) AS src("id", "email", ...)
+```
+
+The only relation in the query is the `VALUES` list, so no source row is read,
+and the output is what the deployed view will produce for those inputs because it
+is the same expression. The response is marked `source: FABRICATED`. If the
+target is unreachable or no deployer is configured, the status is `UNAVAILABLE`
+and the compiled preview still works.
 
 ## Lifecycle
 
@@ -78,12 +124,33 @@ deployment identifier; a separate Linux Celery worker performs the target work.
    and the deployment is completed (this is the reconciliation path after a lost
    response). A differing hash is a conflict.
 5. Otherwise the view statement is executed and a receipt row is inserted in the
-   same transaction. View creation and receipt commit atomically.
-6. On success the control-plane policy moves to `DEPLOYED`; on failure it moves
+   same transaction. View creation and receipt commit atomically. If a newer
+   version changes a column's output type (a kept `numeric` column that is now
+   redacted to text), `CREATE OR REPLACE VIEW` refuses; the view is then dropped
+   and recreated inside the same transaction, so readers never see it missing.
+6. Before committing, the worker verifies the result: the reader role must be
+   able to read the masked view and must have no table or column privilege on
+   the source table. If either check fails, the transaction rolls back and the
+   deployment fails with `ACCESS_VERIFICATION_FAILED`. A successful receipt
+   records `access_verified: true`.
+7. On success the control-plane policy moves to `DEPLOYED`; on failure it moves
    to `FAILED` with a bounded error code and can be retried.
 
 The "one active attempt per policy" partial unique index, plus the advisory lock
 and receipt check, make duplicate and interrupted deployments safe.
+
+## Protected output
+
+`GET /api/v1/policies/{id}/protected-output` is the evidence that a deployed
+policy works. For the version currently deployed on its table, it returns up to
+five rows read through the masked view, and two facts read from the catalog:
+whether the reader role can read the view, and whether it can read the source
+table.
+
+It returns only what the approved policy already exposes to the reader role, so a
+`KEEP` column appears unmasked there exactly as the reader would see it. It is
+limited to administrators, and each call writes a `PROTECTED_OUTPUT_VIEWED`
+audit event. A superseded or undeployed version returns `409`.
 
 ## Security properties
 
@@ -103,3 +170,11 @@ and receipt check, make duplicate and interrupted deployments safe.
   pseudonyms.
 - Whole-column protection for sensitive JSONB and free text currently uses
   nullification; path-level JSONB projection is future work.
+- Recreating a view for a type change keeps only the reader role's grant. A
+  privilege an operator granted on the old view by hand is not carried over, and
+  the recreation is refused if another database object depends on the view.
+- The policy editor pre-fills the pseudonym key domain with `demo`, the key the
+  bundled target provisions. Another target needs its own domain entered.
+- Access verification covers the reader role's privileges on the view and its
+  source table. It does not look for other routes to the data, such as a
+  different view over the same table.
