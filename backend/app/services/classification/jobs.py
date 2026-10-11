@@ -18,6 +18,7 @@ from app.models import (
     SchemaSnapshot,
 )
 from app.services.scanning.jobs import DISPATCH_INTERVAL_SECONDS, MAX_ATTEMPTS, scan_lock
+from app.services.scanning.shapes import MIN_SHAPE_ROWS, is_valid_shape
 
 SAFE_ERROR_CODES = {
     "OLLAMA_UNAVAILABLE",
@@ -255,10 +256,31 @@ def evidence_for_result(db, job: ClassificationJob, result_id: UUID) -> dict:
     # Optional evidence: absent for JSON, for unread columns and for scans
     # stored before shapes existed. The adapter validates every shape against
     # a fixed alphabet and rejects the column if one does not pass.
-    shapes = result.sanitized_evidence.get("shapes")
-    if get_settings().ai_send_shapes and shapes and not result.json_path:
-        evidence["shapes"] = shapes
+    if get_settings().ai_send_shapes and not result.json_path:
+        shapes = sendable_shapes(result.sanitized_evidence.get("shapes"))
+        if shapes:
+            evidence["shapes"] = shapes
     return evidence
+
+
+def sendable_shapes(stored: object) -> list[dict]:
+    """The stored shapes that meet today's rules.
+
+    A scan stored by an earlier build can hold shapes this build would not
+    compute: one with a sign at an end, or one that fewer than
+    ``MIN_SHAPE_ROWS`` values had. Those are left out here, so the model is
+    never sent them and the adapter does not reject the whole column for them.
+    """
+    if not isinstance(stored, list):
+        return []
+    return [
+        item
+        for item in stored
+        if isinstance(item, dict)
+        and isinstance(item.get("rows"), int)
+        and item["rows"] >= MIN_SHAPE_ROWS
+        and is_valid_shape(item.get("shape"))
+    ]
 
 
 def run_classification(job_id: UUID) -> None:

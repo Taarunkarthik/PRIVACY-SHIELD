@@ -349,7 +349,11 @@ describe('masking policy workflow', () => {
     // The message is in the dialog, where it can be seen, and the dialog stays open.
     expect(await within(dialog).findByRole('alert')).toBeInTheDocument();
     expect(within(dialog).getByRole('button', { name: 'Create policy' })).toBeEnabled();
-    // Escape closes it even when focus has left the dialog, as it does after a
+    // Escape in a dropdown closes the list, not the dialog and the draft with it.
+    table.focus();
+    await visitor.keyboard('{Escape}');
+    expect(screen.getByRole('dialog', { name: 'Create policy' })).toBeInTheDocument();
+    // Escape closes the dialog even when focus has left it, as it does after a
     // button that removes itself is used.
     (document.activeElement as HTMLElement | null)?.blur();
     expect(document.body).toHaveFocus();

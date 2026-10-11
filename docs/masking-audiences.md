@@ -213,6 +213,17 @@ END
 $$;
 ```
 
+The same statement is in `infra/postgres/add-audience-roles.sql`. For the bundled
+Docker Compose target, from the repository root:
+
+```text
+docker compose exec -T target-db psql -U postgres -d enterprise_demo -v ON_ERROR_STOP=1 < infra/postgres/add-audience-roles.sql
+```
+
+Until the roles exist, a policy with rules for support or analysts fails to
+deploy with `AUDIENCE_ROLE_MISSING` and changes nothing; deploy the same
+approved version again afterwards. Reader-only policies do not need the roles.
+
 Then give the role to the people who should have that view:
 
 ```sql

@@ -36,7 +36,7 @@ This record says what was run on the merged result, on what, and what was not.
 | Check | Result |
 | --- | --- |
 | `ruff check .` | Passed |
-| Backend unit tests (`pytest -m "not integration"`) | 479 passed |
+| Backend unit tests (`pytest -m "not integration"`) | 482 passed |
 | `alembic upgrade head` from an empty database, then `alembic check` | Passed; one head (`0007_policy_audiences`), no drift |
 | Downgrade to `0005_format_masks`, upgrade to head, `alembic check` | Passed |
 | Integration tests against real PostgreSQL, Redis and a separate worker | 132 passed, run twice: on fresh databases and again on the used ones |
@@ -82,8 +82,9 @@ done:
   different shapes), a shape could describe a single row, and shapes were
   computed for numbers and dates, where they add only sign and magnitude. Now
   a sign at either end is written `?`, a shape is stored only when five or more
-  sampled values have it, and only character columns get shapes. The
-  documentation states what remains visible.
+  sampled values have it, and only character columns get shapes. Shapes stored
+  by an earlier build are filtered by the same rules before they are sent to
+  the model. The documentation states what remains visible.
 - **Verifying the audit chain could use up the connection pool.** Ten
   concurrent requests on a log of 300,000 events made another request time
   out. One verification now runs at a time per process; a second request gets
@@ -109,6 +110,13 @@ done:
 
 Each behavioural fix has a test. Two of the new frontend tests were checked by
 removing the safeguard they cover and watching them fail.
+
+A third reviewer then read the fixes alone. It found that shapes already
+stored by the previous build would have been rejected by the stricter check
+(now filtered instead), a second form of malformed admin URL, and three small
+problems in the Policies dialog; all are fixed. It ran the shape function
+against its validator on 18 million generated values without a mismatch, and
+the same check was repeated here on 1.7 million values after the last change.
 
 ## Not verified
 

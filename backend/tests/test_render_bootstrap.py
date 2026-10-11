@@ -117,6 +117,21 @@ def test_a_url_that_cannot_be_read_never_quotes_the_password(separator):
     assert failure.value.__cause__ is None and failure.value.__suppress_context__
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "postgres://admin:2024/s3cretTail@db.internal:5432/app",
+        "postgres://admin:/s3cretTail@db.internal:5432/app",
+    ],
+)
+def test_a_password_that_ends_up_in_the_path_is_refused_not_used_as_a_database_name(url):
+    # These parse without an error: the text after the "/" becomes the path,
+    # which would be logged as the database name.
+    with pytest.raises(bootstrap.BootstrapError) as failure:
+        bootstrap._conninfo(url)
+    assert "s3cretTail" not in str(failure.value)
+
+
 def test_tls_mode_is_validated(monkeypatch):
     monkeypatch.delenv("BOOTSTRAP_DB_SSLMODE", raising=False)
     assert bootstrap._sslmode() == "require"

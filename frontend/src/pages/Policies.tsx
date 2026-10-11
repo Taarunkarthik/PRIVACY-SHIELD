@@ -53,6 +53,10 @@ export function Policies() {
   const connection = connections.find((c) => c.id === connectionId);
   const selectedId = params.get('policy') || policies?.items[0]?.id || '';
   const selected = policies?.items.find((p) => p.id === selectedId) || null;
+  // Read by responses that arrive late: a failure for a policy that is no
+  // longer selected must not be reported against the one that is.
+  const selectedNow = useRef(selectedId);
+  selectedNow.current = selectedId;
   // The audiences this policy has a view for, and the one on screen.
   const audiences = selected ? policyAudiences(selected) : AUDIENCES.slice(0, 1);
   const shownAudience: Audience = audiences.includes(audience) ? audience : 'reader';
@@ -149,7 +153,7 @@ export function Policies() {
       api<PolicySamples>(`/policies/${encodeURIComponent(id)}/preview/samples${query}`)
         .then((value) => { if (current()) setSamples(value); })
         .catch(() => { if (current()) setSamples({ policy_id: id, status: 'UNAVAILABLE', source: 'FABRICATED', audience: forAudience, columns: [], before: [], after: [] }); });
-    } catch (r) { if (current()) setPreviewError(r instanceof ApiError ? r.message : 'Could not load preview.'); }
+    } catch (r) { if (current() && selectedNow.current === id) setPreviewError(r instanceof ApiError ? r.message : 'Could not load preview.'); }
     finally { if (current()) setPreviewLoading(false); }
   }
 
@@ -162,7 +166,7 @@ export function Policies() {
       const value = await api<ProtectedOutput>(`/policies/${encodeURIComponent(id)}/protected-output${audienceQuery(forAudience)}`);
       if (current()) setOutput(value);
     } catch (r) {
-      if (current()) setActionError(r instanceof ApiError && r.status === 409
+      if (current() && selectedNow.current === id) setActionError(r instanceof ApiError && r.status === 409
         ? 'Protected output is not available for this version. A newer version may have replaced it, or its connection or schema may have changed.'
         : r instanceof ApiError ? r.message : 'Could not load the protected output.');
     }
@@ -180,6 +184,10 @@ export function Policies() {
   const shownView: PolicyView = view === 'output' && !canSeeOutput ? 'rules' : view;
 
   function selectPolicy(id: string) {
+    // Reset together with the selection, so no frame shows the old tab for the
+    // new policy. The effect above covers the routes that do not pass through here.
+    setView('rules');
+    setAudience('reader');
     setParams({ connection: connectionId, policy: id });
   }
 
@@ -330,7 +338,7 @@ export function Policies() {
       </section>}
     </div>}
 
-    {showCreate && <CreatePolicyDialog connectionId={connectionId} onClose={() => setShowCreate(false)} onCreated={(id) => { setShowCreate(false); setParams({ connection: connectionId, policy: id }); setRevision((v) => v + 1); }} />}
+    {showCreate && <CreatePolicyDialog connectionId={connectionId} onClose={() => setShowCreate(false)} onCreated={(id) => { setShowCreate(false); selectPolicy(id); setRevision((v) => v + 1); }} />}
   </div>;
 }
 
@@ -412,10 +420,18 @@ function CreatePolicyDialog({ connectionId, onClose, onCreated }: { connectionId
 
   // Escape closes the dialog wherever focus is. A button that removes itself when
   // used (applying suggestions, say) leaves focus on the page, outside the dialog.
+  // Not while a create is on its way: its outcome is reported in this dialog.
+  // And not from a dropdown, where Escape means "close the list" (some browsers
+  // pass that key press on to the page).
   const close = useRef(onClose);
   close.current = onClose;
+  const busy = useRef(false);
   useEffect(() => {
-    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') close.current(); };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing || busy.current) return;
+      if (event.target instanceof HTMLSelectElement) return;
+      close.current();
+    };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, []);
@@ -491,6 +507,7 @@ function CreatePolicyDialog({ connectionId, onClose, onCreated }: { connectionId
   async function create() {
     if (!table || !user) return;
     setLoading(true);
+    busy.current = true;
     setError('');
     try {
       const created = await api<Policy>('/policies', {
@@ -513,12 +530,12 @@ function CreatePolicyDialog({ connectionId, onClose, onCreated }: { connectionId
       });
       onCreated(created.id);
     } catch (r) { setError(r instanceof ApiError ? r.message : 'Could not create policy.'); }
-    finally { setLoading(false); }
+    finally { setLoading(false); busy.current = false; }
   }
 
   return <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="Create policy">
     <div className="modal-panel wide">
-      <div className="modal-header"><h2>New masking policy</h2><button className="text-button" onClick={onClose}>Cancel</button></div>
+      <div className="modal-header"><h2>New masking policy</h2><button className="text-button" onClick={onClose} disabled={loading}>Cancel</button></div>
       {snapshotLoading ? <div className="data-empty" role="status"><div className="loading-ring" /><p>Loading schema…</p></div>
         : !snapshot ? <div className="data-empty"><p>No schema snapshot found. Discover the schema first.</p></div>
         : <>
@@ -569,7 +586,7 @@ function CreatePolicyDialog({ connectionId, onClose, onCreated }: { connectionId
           </div>}
           {error && <div className="error-box modal-error" role="alert">{error}</div>}
           <div className="modal-actions">
-            <button className="button secondary" onClick={onClose}>Cancel</button>
+            <button className="button secondary" onClick={onClose} disabled={loading}>Cancel</button>
             {overLimit && <p className="rules-editor-note" role="alert">A policy can hold at most {MAX_RULES} rules for each audience. Remove {counts[overLimit] - MAX_RULES} of the rules for {audienceLabel[overLimit].toLowerCase()} to continue; columns without a rule are returned as NULL.</p>}
             <button className="button primary" disabled={!table || loading || ruleCount === 0 || Boolean(overLimit)} onClick={create}>{loading ? 'Creating…' : 'Create policy'}</button>
           </div>

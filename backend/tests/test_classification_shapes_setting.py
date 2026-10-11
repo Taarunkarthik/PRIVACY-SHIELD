@@ -10,6 +10,17 @@ from app.models import ScanJob, ScanResult, SchemaSnapshot
 from app.services.classification.jobs import evidence_for_result
 
 SHAPES = [{"shape": "a+.a+@a+.a+", "rows": 9}]
+COVERAGE = {
+    "mode": "bounded_sample",
+    "sample_limit": 10,
+    "max_cell_chars": 4096,
+    "max_cell_bytes": 16384,
+    "values_truncated": 0,
+    "values_skipped": 0,
+    "json_truncated": 0,
+    "path_limit_reached": 0,
+    "unsupported_type": False,
+}
 
 
 @pytest.fixture(autouse=True)
@@ -78,6 +89,30 @@ def test_switching_shapes_off_sends_the_earlier_request(monkeypatch, value):
     monkeypatch.setenv("AI_SEND_SHAPES", value)
     db, job, result_id = _fixture()
     assert "shapes" not in evidence_for_result(db, job, result_id)
+
+
+def test_shapes_stored_by_an_earlier_build_are_filtered_not_sent(monkeypatch):
+    """Otherwise the adapter rejects the whole column, or the model sees a sign."""
+    monkeypatch.setenv("AI_SEND_SHAPES", "true")
+    db, job, result_id = _fixture()
+    result = db.get(ScanResult, result_id)
+    result.sanitized_evidence["shapes"] = [
+        {"shape": "+9+ 9+ 9+", "rows": 90},  # A sign at the start: no longer a shape.
+        {"shape": "a+.a+@a+.a+", "rows": 9},
+        {"shape": "A+9+A", "rows": 1},  # Too few rows to describe the column.
+        {"shape": "customer1@example.com", "rows": 50},  # Not a shape at all.
+        "not-a-dict",
+    ]
+    assert evidence_for_result(db, job, result_id)["shapes"] == SHAPES
+    result.sanitized_evidence["shapes"] = [{"shape": "-9+.9+", "rows": 40}]
+    assert "shapes" not in evidence_for_result(db, job, result_id)
+    # The adapter accepts what is left.
+    from app.services.classification.adapter import _validate_inputs
+
+    result.sanitized_evidence["shapes"] = [{"shape": "+9+ 9+ 9+", "rows": 9}, *SHAPES]
+    evidence = evidence_for_result(db, job, result_id)
+    evidence["coverage"] = COVERAGE
+    assert _validate_inputs([evidence])[0].shapes is not None
 
 
 def test_a_json_path_never_carries_shapes(monkeypatch):

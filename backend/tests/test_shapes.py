@@ -307,3 +307,9 @@ def test_a_sign_at_either_end_never_survives_and_is_never_valid():
         assert is_valid_shape(shape)
     for forged in ("+9+ 9+", "-9+.9+", "A+-", "9+-", "a++"):
         assert not is_valid_shape(forged)
+    # Padding does not hide a sign from the rule.
+    assert value_shape(" +5") == value_shape(" -5") == " ?9"
+    assert value_shape("5+ ") == value_shape("5- ") == "9? "
+    assert value_shape("\t-5\n") == value_shape("\t+5\n")
+    # Documented limit: a sign that is not at an end is part of the form.
+    assert value_shape("(+5)") != value_shape("(-5)")

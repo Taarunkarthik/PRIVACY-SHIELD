@@ -22,9 +22,11 @@ What a shape does and does not hide
     that from turning a shape back into a value:
 
     * a value made only of kept punctuation is dropped instead of shaped;
-    * a ``+`` or ``-`` at the very start or end of a value is a sign, not
-      structure, and is written ``?`` (so ``O+`` and ``O-`` share one shape,
-      as do ``-12.50`` and ``+12.50``);
+    * a ``+`` or ``-`` at the very start or end of a value, ignoring
+      surrounding whitespace, is a sign, not structure, and is written ``?``
+      (so ``O+`` and ``O-`` share one shape, as do ``-12.50`` and ``+12.50``).
+      A sign anywhere else is kept, including one inside brackets: ``(+5)``
+      and ``(-5)`` have different shapes;
     * a column reports a shape only when at least ``MIN_SHAPE_ROWS`` sampled
       values have it, so a shape never describes one person's value.
 
@@ -98,14 +100,16 @@ def value_shape(value: str) -> str | None:
     previous = ""
     repeated = False
     has_content = False
-    last = len(value) - 1
+    # The first and last characters that are not whitespace: a sign there is a
+    # sign even when the value is padded.
+    ends = (len(value) - len(value.lstrip()), len(value.rstrip()) - 1)
     for index, character in enumerate(value):
         symbol = _symbol(character, previous)
         if not symbol:
             continue
         if symbol in CLASS_SYMBOLS:
             has_content = True
-        elif character in _SIGNS and index in (0, last):
+        elif character in _SIGNS and index in ends:
             symbol = "?"
         if symbol == previous:
             if not repeated:

@@ -53,6 +53,8 @@ docker compose exec -T api python -c "from app.services.classification.adapter i
 
 The first sends, byte for byte, the request that passed under v3, so a failure there is not caused by shapes. The second describes a fabricated column the detectors missed (`contact_ref`, no matches) whose values all have a phone-like form. It prints `status: ok` when the model proposes protection and `status: review` when it answers `NONE` or `KEEP`, which means the shapes did not help on that fixture. Neither is an accuracy measurement.
 
+Shapes stored by an earlier build are checked against these rules again before they are sent: one that no longer qualifies (a sign at an end, fewer than five rows) is left out of the request. It stays in the stored scan until the database is scanned again.
+
 If v4 behaves worse than v3, set `AI_SEND_SHAPES=false` in `.env` and run `docker compose up -d` again (no rebuild). The worker then sends exactly the v3 request for every column, and stored shapes are left unused. Jobs are still labelled `privacyshield-classify-v4`.
 
 ## Workflow and API
@@ -133,7 +135,7 @@ Until v4 the model saw a column's name, type, key flags and detector counts. For
 | Anything else: other punctuation, quotes, backslashes, symbols, emoji, control characters, tabs and line breaks | `?` |
 | A combining mark directly after a letter | nothing; it belongs to that letter |
 
-A `+` or `-` at the very start or end of a value is a sign rather than part of its form, and is written `?`. A run of two or more of the same symbol is then written as the symbol followed by `+`. So `priya.sharma42@example.com` becomes `a+.a+9+@a+.a+`, `+91 98765 43210` becomes `?9+ 9+ 9+`, `ABCPK1234F` becomes `A+9+A`, `2026-10-11` becomes `9+-9+-9+`, and `1 Example Street, Demo City` becomes `9 Aa+ Aa+, Aa+ Aa+`. Classification is by Unicode category, so `प्रिया शर्मा` becomes `a+ a+`. The whole alphabet is the fifteen characters `aA9+?@.-_()/:, ` including the space.
+A `+` or `-` at the very start or end of a value (ignoring surrounding whitespace) is a sign rather than part of its form, and is written `?`. A run of two or more of the same symbol is then written as the symbol followed by `+`. So `priya.sharma42@example.com` becomes `a+.a+9+@a+.a+`, `+91 98765 43210` becomes `?9+ 9+ 9+`, `ABCPK1234F` becomes `A+9+A`, `2026-10-11` becomes `9+-9+-9+`, and `1 Example Street, Demo City` becomes `9 Aa+ Aa+, Aa+ Aa+`. Classification is by Unicode category, so `प्रिया शर्मा` becomes `a+ a+`. The whole alphabet is the fifteen characters `aA9+?@.-_()/:, ` including the space.
 
 Bounds:
 
@@ -150,7 +152,7 @@ No letter or digit of a value is in its shape. Every class except the kept punct
 
 A kept punctuation mark is a class of one, so it does appear in the shape as itself. That is deliberate: the marks are the signal that separates an email address from a date. Three rules keep that from turning a shape back into a value, and one consequence remains.
 
-- A sign at either end of a value is written `?`. `O+` and `O-` share the shape `A?`, and `-12.50` and `+12.50` share `?9+.9+`, so a shape does not say which sign a value had.
+- A sign at either end of a value is written `?`. `O+` and `O-` share the shape `A?`, and `-12.50` and `+12.50` share `?9+.9+`, so a shape does not say which sign a value had. A sign anywhere else is kept as part of the form, including one inside brackets: `(+5)` and `(-5)` have different shapes.
 - A shape is stored only when at least five sampled values have it, so a stored shape never describes one person's value. A column where every value has its own form stores none.
 - A value made only of kept punctuation and spaces would have itself as its shape. Such content is usually a placeholder like `-`, but it can also carry meaning, for example text written in dots and dashes. **These values are dropped**: no shape is stored for them and they are not counted. The same applies to the empty string, and to a value whose shape holds punctuation only once it is cut to 48 characters.
 - For every other value the layout of its kept punctuation is visible in the shape, with runs reduced to one or many. A value that is mostly punctuation with a few letters keeps that layout. This is accepted as part of what a shape is.

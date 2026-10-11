@@ -141,12 +141,17 @@ def _conninfo(url: str) -> dict:
         parts = urlsplit(url)
         if parts.scheme not in ("postgres", "postgresql"):
             raise BootstrapError("Admin database URL must be a postgres URL")
+        dbname = (parts.path or "/").lstrip("/") or "postgres"
+        if "@" in dbname or "/" in dbname:
+            # A password with an unescaped "/" whose first part happens to be a
+            # number: the rest of the URL, password included, lands in the path.
+            raise ValueError("database name is not a name")
         return {
             "host": parts.hostname or "localhost",
             "port": parts.port or 5432,
             "user": unquote(parts.username or "postgres"),
             "password": unquote(parts.password or ""),
-            "dbname": (parts.path or "/").lstrip("/") or "postgres",
+            "dbname": dbname,
         }
     except ValueError:
         # urlsplit quotes the part it could not read, which can be a piece of the
