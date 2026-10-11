@@ -596,3 +596,90 @@ def test_start_script_serves_the_whole_product_from_one_process(instance, tmp_pa
         for server in servers:
             server.kill()
         time.sleep(0.2)
+
+
+def test_vercel_wrapper_starts_the_same_product_from_injected_variables(instance, tmp_path):
+    """scripts/vercel/start.sh with the variables a Vercel Marketplace database injects.
+
+    This shows the wrapper and the start script work together against a real
+    PostgreSQL server. It is not a test on Vercel: the container runtime, its
+    lifecycle and the Neon database are not involved.
+    """
+    assert os.environ.get("TEST_OLLAMA_BASE_URL"), "Controlled HTTP Ollama double required"
+    static_dir = hosted.make_static_dir(tmp_path / "static")
+    port = hosted.free_port()
+    env = instance.bootstrap_env(tmp_path / "vercel.runtime_env")
+    direct = env.pop("CONTROL_ADMIN_URL")
+    # A pooler address nothing listens on: using it for anything would fail.
+    pooled = direct.replace(f":{instance.server.port}/", f":{hosted.closed_port()}/")
+    injected = {
+        "DATABASE_URL": pooled,
+        "DATABASE_URL_UNPOOLED": direct,
+        "POSTGRES_URL": pooled,
+        "POSTGRES_URL_NON_POOLING": direct,
+        "POSTGRES_PRISMA_URL": pooled,
+        "POSTGRES_USER": instance.admin_role,
+        "POSTGRES_PASSWORD": instance.admin_password,
+        "POSTGRES_HOST": "pooler.invalid",
+        "POSTGRES_DATABASE": instance.control_db,
+        "PGHOST": "pooler.invalid",
+        "PGHOST_UNPOOLED": instance.server.host,
+        "PGUSER": instance.admin_role,
+        "PGPASSWORD": instance.admin_password,
+        "PGDATABASE": instance.control_db,
+    }
+    env.update(injected)
+    env.update(
+        {
+            "PORT": str(port),
+            "STATIC_DIR": str(static_dir),
+            "ADMIN_EMAIL": ADMIN_EMAIL,
+            "ADMIN_PASSWORD": instance.admin_login_password,
+            "VERCEL_PROJECT_PRODUCTION_URL": "privacy-shield-test.vercel.app",
+            "VERCEL_URL": "privacy-shield-test-abc123.vercel.app",
+            "REDIS_URL": f"redis://127.0.0.1:{hosted.closed_port()}/0",
+            "OLLAMA_BASE_URL": os.environ["TEST_OLLAMA_BASE_URL"],
+        }
+    )
+    server = hosted.ServerProcess(
+        ["sh", "scripts/vercel/start.sh"], env, tmp_path / "vercel.log", port
+    )
+    try:
+        server.start(ready_path="/health", timeout=180)
+        log = server.log()
+        assert "Bootstrap complete." in log
+        assert f"listening on 0.0.0.0:{port}" in log
+        with httpx.Client(base_url=server.base_url, timeout=10, trust_env=False) as anonymous:
+            ready = anonymous.get("/api/v1/health/ready")
+            assert ready.status_code == 200
+            assert ready.json()["checks"] == {"database": "ok", "redis": "not_used", "jobs": "ok"}
+            assert '<div id="root">' in anonymous.get("/policies").text
+
+        # Both addresses Vercel gave the deployment may sign in; another site may not.
+        for origin in (
+            "https://privacy-shield-test.vercel.app",
+            "https://privacy-shield-test-abc123.vercel.app",
+        ):
+            session = hosted.ApiSession(server.base_url, origin)
+            assert session.login(ADMIN_EMAIL, instance.admin_login_password).status_code == 200
+            assert session.get("/api/v1/auth/me").json()["role"] == "ADMIN"
+            session.close()
+        attacker = hosted.ApiSession(server.base_url, "https://attacker.example")
+        assert attacker.login(ADMIN_EMAIL, instance.admin_login_password).status_code == 403
+        attacker.close()
+
+        # The server process is the one the wrapper became (exec all the way down).
+        # It holds none of the injected names and no copy of the owner's password.
+        raw = open(f"/proc/{server.process.pid}/environ", "rb").read().decode(errors="replace")
+        held = dict(item.split("=", 1) for item in raw.split("\0") if "=" in item)
+        assert held["JOB_RUNNER"] == "inline"
+        assert held["DATABASE_URL"].startswith("postgresql+psycopg://ps_app:")
+        assert not (set(injected) - {"DATABASE_URL"}) & set(held)
+        assert "CONTROL_ADMIN_URL" not in held and "APP_SECRET" not in held
+        assert instance.admin_password not in raw and instance.app_secret not in raw
+
+        assert server.terminate(timeout=40) in (0, -15)
+        for value in instance.all_secrets():
+            assert value not in server.log()
+    finally:
+        server.kill()

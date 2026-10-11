@@ -36,10 +36,10 @@ This record says what was run on the merged result, on what, and what was not.
 | Check | Result |
 | --- | --- |
 | `ruff check .` | Passed |
-| Backend unit tests (`pytest -m "not integration"`) | 482 passed |
+| Backend unit tests (`pytest -m "not integration"`) | 491 passed |
 | `alembic upgrade head` from an empty database, then `alembic check` | Passed; one head (`0007_policy_audiences`), no drift |
 | Downgrade to `0005_format_masks`, upgrade to head, `alembic check` | Passed |
-| Integration tests against real PostgreSQL, Redis and a separate worker | 132 passed, run twice: on fresh databases and again on the used ones |
+| Integration tests against real PostgreSQL, Redis and a separate worker | 133 passed. 132 of them were run twice, on fresh databases and again on the used ones; the last, for the Vercel start wrapper, was added afterwards and run with the full suite once |
 | Frontend `tsc -b` | Passed |
 | Frontend component tests (`vitest run`) | 82 passed |
 | Frontend production build | Passed |
@@ -131,6 +131,10 @@ the same check was repeated here on 1.7 million values after the last change.
   model answers worse with them, set `AI_SEND_SHAPES=false`. The two smoke
   commands are in [classification.md](classification.md).
 - **PostgreSQL 17 and 18** were not tested; the hosted database is pinned to 16.
+- **Vercel.** `Dockerfile.vercel` and its start wrapper are experimental. The
+  wrapper is tested against a real PostgreSQL server, but nothing has been
+  built or run on Vercel or on a Neon database. See
+  [deploy-vercel.md](deploy-vercel.md).
 - **Docker Compose** was not started with this build. The Compose images are
   unchanged apart from the code they contain.
 
