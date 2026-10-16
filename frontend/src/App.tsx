@@ -1,9 +1,7 @@
 import { BrowserRouter, Link, Route, Routes } from 'react-router';
 import { AuthProvider, useAuth } from './api/auth';
 import { Brand } from './components/Brand';
-import { DataField } from './components/DataField';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { MotionProvider } from './components/motion';
 import { Layout } from './components/Layout';
 import { Dashboard } from './pages/Dashboard';
 import { Connections } from './pages/Connections';
@@ -25,12 +23,6 @@ function SessionApp() {
   return <Routes><Route element={<Layout />}><Route index element={<Dashboard />} /><Route path="/connections" element={<Connections />} /><Route path="/schema" element={<SchemaExplorer />} /><Route path="/scans" element={<Scans />} /><Route path="/classifications" element={<Classifications />} /><Route path="/policies" element={<Policies />} /><Route path="/approvals" element={<Approvals />} /><Route path="/deployments" element={<Deployments />} /><Route path="/audit" element={<AuditLogs />} /><Route path="/settings" element={<Settings />} /><Route path="/users" element={<Users />} /><Route path="*" element={<div className="page-content"><section className="panel empty-feature"><h1>Page not found</h1><p>This page is not part of your workspace.</p><Link to="/" className="button primary">Back to overview</Link></section></div>} /></Route></Routes>;
 }
 
-/** One canvas for the whole session: at full strength behind sign-in, receding once the workspace opens. */
-function Background() {
-  const { user } = useAuth();
-  return <DataField strength={user ? 'ambient' : 'hero'} />;
-}
-
 export function App() {
-  return <BrowserRouter><AuthProvider><MotionProvider><Background /><ErrorBoundary><SessionApp /></ErrorBoundary></MotionProvider></AuthProvider></BrowserRouter>;
+  return <BrowserRouter><AuthProvider><ErrorBoundary><SessionApp /></ErrorBoundary></AuthProvider></BrowserRouter>;
 }

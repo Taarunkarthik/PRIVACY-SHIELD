@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { canAnimate } from './motion';
+import { canAnimate } from './reducedMotion';
 
 const DURATION_MS = 600;
 const NOISE = '*#%&$@';
