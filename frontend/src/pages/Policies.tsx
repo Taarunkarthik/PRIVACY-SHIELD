@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router';
 import { ArrowRight, Check, ChevronLeft, ChevronRight, Copy, FileClock, Play, Plus, RefreshCw, Send, ShieldCheck, Sparkles, X } from 'lucide-react';
 import { api, ApiError } from '../api/client';
 import { useAuth } from '../api/auth';
+import { can, isReadOnly, roleLabel } from '../api/permissions';
 import { defaultConnectionId } from '../api/connections';
 import type { Connection, SchemaSnapshot } from '../api/connections';
 import { classificationCategory } from '../api/classifications';
@@ -24,8 +25,10 @@ type PolicyView = 'rules' | 'preview' | 'output';
 
 export function Policies() {
   const { user } = useAuth();
-  const canManage = user?.role === 'ADMIN' || user?.role === 'ANALYST';
-  const canApprove = user?.role === 'ADMIN';
+  const canCreate = can(user, 'policy.create');
+  const canApprove = can(user, 'policy.approve');
+  const canDeploy = can(user, 'policy.deploy');
+  const readOnly = isReadOnly(user);
   const [params, setParams] = useSearchParams();
   const [connections, setConnections] = useState<Connection[]>([]);
   const [connectionsLoading, setConnectionsLoading] = useState(true);
@@ -226,11 +229,13 @@ export function Policies() {
     <div className="page-heading">
       <div><h1>Masking Policies<span className="heading-dot">.</span></h1><p className="page-description">Create, preview, approve, and deploy data protection policies.</p></div>
       <div className="heading-actions">
-        {canManage && connection && <button className="button primary" onClick={() => setShowCreate(true)}><Plus size={15} /> New policy</button>}
+        {canCreate && connection && <button className="button primary" onClick={() => setShowCreate(true)}><Plus size={15} /> New policy</button>}
         <Link className="button secondary" to="/deployments"><FileClock size={15} /> Deployments</Link>
         <button className="button secondary" onClick={() => setRevision((v) => v + 1)} disabled={policiesLoading || connectionsLoading}><RefreshCw size={15} /> Refresh</button>
       </div>
     </div>
+
+    {readOnly && user && <p className="readonly-note">Read-only for your {roleLabel[user.role]} role: you can review policies and previews, but cannot create, submit, approve, or deploy them.</p>}
 
     {(connectionError || policiesError || actionError || previewError) && <div className="error-box" role="alert">{connectionError || policiesError || actionError || previewError}</div>}
 
@@ -246,7 +251,7 @@ export function Policies() {
           </select>
         </div>}
         {policiesLoading && !policies ? <div className="data-empty" role="status"><div className="loading-ring" /><p>Loading policies…</p></div>
-          : policies && !policies.total ? <div className="data-empty"><ShieldCheck size={34} strokeWidth={1.3} /><h3>No policies yet</h3><p>{canManage ? 'Create your first masking policy to protect sensitive data.' : 'Policies will appear here once an administrator or analyst creates one.'}</p></div>
+          : policies && !policies.total ? <div className="data-empty"><ShieldCheck size={34} strokeWidth={1.3} /><h3>No policies yet</h3><p>{canCreate ? 'Create your first masking policy to protect sensitive data.' : 'Policies will appear here once an administrator or analyst creates one.'}</p></div>
           : <div className="policy-items">{policies?.items.map((item) => (
             <button type="button" className={`policy-row ${selectedId === item.id ? 'selected' : ''}`} key={item.id} onClick={() => selectPolicy(item.id)} aria-pressed={selectedId === item.id}>
               <span className="policy-info"><strong>{item.schema_name}.{item.table_name}</strong><small>v{item.version} · {item.rules.length} rules · {new Date(item.created_at).toLocaleDateString()}</small></span>
@@ -270,12 +275,12 @@ export function Policies() {
             {canSeeOutput && <button type="button" className="policy-tab" aria-pressed={shownView === 'output'} aria-label="View protected output" onClick={() => openOutput(selected.id)}>Protected output</button>}
           </div>
           <div className="policy-actions">
-            {canManage && selected.status === 'DRAFT' && <button className="button primary" disabled={actionLoading === selected.id} onClick={() => submitPolicy(selected.id)}><Send size={15} />{actionLoading === selected.id ? 'Submitting…' : 'Submit for approval'}</button>}
+            {canCreate && selected.status === 'DRAFT' && <button className="button primary" disabled={actionLoading === selected.id} onClick={() => submitPolicy(selected.id)}><Send size={15} />{actionLoading === selected.id ? 'Submitting…' : 'Submit for approval'}</button>}
             {canApprove && selected.status === 'PENDING_APPROVAL' && <>
               <button className="button primary" disabled={actionLoading === selected.id} onClick={() => approvePolicy(selected.id)}><Check size={15} />{actionLoading === selected.id ? 'Approving…' : 'Approve'}</button>
               <button className="button danger" disabled={actionLoading === selected.id} onClick={() => rejectPolicy(selected.id)}><X size={15} />{actionLoading === selected.id ? 'Rejecting…' : 'Reject'}</button>
             </>}
-            {canApprove && (selected.status === 'APPROVED' || selected.status === 'FAILED') && <button className="button primary" disabled={actionLoading === selected.id} onClick={() => deployPolicy(selected.id)}><Play size={15} />{actionLoading === selected.id ? 'Deploying…' : 'Deploy'}</button>}
+            {canDeploy && (selected.status === 'APPROVED' || selected.status === 'FAILED') && <button className="button primary" disabled={actionLoading === selected.id} onClick={() => deployPolicy(selected.id)}><Play size={15} />{actionLoading === selected.id ? 'Deploying…' : 'Deploy'}</button>}
           </div>
         </div>
 

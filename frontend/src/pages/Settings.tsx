@@ -3,6 +3,7 @@ import type { FormEvent } from 'react';
 import { KeyRound, Plus, RefreshCw, Save, Settings2, ShieldCheck, Trash2 } from 'lucide-react';
 import { ApiError } from '../api/client';
 import { useAuth } from '../api/auth';
+import { can, roleLabel } from '../api/permissions';
 import {
   getSettings,
   updateSettings,
@@ -38,7 +39,7 @@ function settingsError(reason: unknown, kind: 'workspace' | 'pattern') {
 
 export function Settings() {
   const { user } = useAuth();
-  const isAdmin = user?.role === 'ADMIN';
+  const isAdmin = can(user, 'manage.settings');
   const [settings, setSettings] = useState<WorkspaceSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -161,6 +162,8 @@ export function Settings() {
       <div><h1>Settings<span className="heading-dot">.</span></h1><p className="page-description">Manage workspace identity, data retention, and custom detection patterns.</p></div>
       <button className="button secondary" onClick={() => setRevision((value) => value + 1)} disabled={loading}><RefreshCw size={15} /> Refresh</button>
     </div>
+
+    {!isAdmin && user && <p className="readonly-note">Read-only for your {roleLabel[user.role]} role: only an administrator can change workspace settings and detection patterns.</p>}
 
     {loadError && <div className="error-box" role="alert">{loadError}</div>}
 

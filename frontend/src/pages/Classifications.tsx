@@ -4,6 +4,7 @@ import { Link, useSearchParams } from 'react-router';
 import { AlertTriangle, ArrowRight, Bot, ChevronLeft, ChevronRight, RefreshCw, Sparkles } from 'lucide-react';
 import { api } from '../api/client';
 import { useAuth } from '../api/auth';
+import { can, isReadOnly, roleLabel } from '../api/permissions';
 import type { ScanJob, ScanPage } from '../api/scans';
 import { activeClassification, activeClassificationPage, classificationError, classificationFailure, classificationStatus, launchError as describeLaunchError, nothingForModel, summarySentences } from '../api/classifications';
 import type { ClassificationJob, ClassificationJobPage, ClassificationSummary } from '../api/classifications';
@@ -13,7 +14,8 @@ import { ClassificationSelection } from '../components/ClassificationSelection';
 
 export function Classifications() {
   const { user } = useAuth();
-  const canClassify = user?.role === 'ADMIN' || user?.role === 'ANALYST';
+  const readOnly = isReadOnly(user);
+  const canClassify = can(user, 'classify.run');
   const [params, setParams] = useSearchParams();
   const [revision, setRevision] = useState(0);
   const [scanPage, setScanPage] = useState(1);
@@ -55,6 +57,7 @@ export function Classifications() {
 
   return <div className="page-content classification-page">
     <div className="page-heading"><div><p className="eyebrow">CONTEXT FOR EVERY FINDING</p><h1>AI Classification<span className="heading-dot">.</span></h1><p className="page-description">Review advisory classifications and choose what deserves protection.</p></div><button className="button secondary" onClick={() => setRevision((value) => value + 1)} disabled={launching || scans.loading}><RefreshCw size={15} /> Refresh</button></div>
+    {readOnly && user && <p className="readonly-note">Read-only for your {roleLabel[user.role]} role: you can review AI classifications, but cannot request them.</p>}
     <div className="sample-notice"><Sparkles size={17} /><p>AI reviews metadata and sanitized detection evidence. Recommendations need human review and do not apply protection or change source records.</p></div>
     <form className="panel scan-launch" aria-label="Request AI classification" onSubmit={launch}>
       <div className="form-field"><label htmlFor="classification-scan">Completed scan</label><select id="classification-scan" value={scanId} disabled={scans.loading || launching} onChange={(event) => { setParams({ scan: event.target.value }); setHistoryPage(1); setSelectionMode('default'); setSelection({ scanId: event.target.value, ids: [] }); setLaunchError(''); }}>

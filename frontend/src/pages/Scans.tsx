@@ -4,6 +4,7 @@ import { Link, useSearchParams } from 'react-router';
 import { AlertTriangle, ArrowRight, ChevronLeft, ChevronRight, Clock3, Database, Play, RefreshCw, ScanLine } from 'lucide-react';
 import { api, ApiError } from '../api/client';
 import { useAuth } from '../api/auth';
+import { can, isReadOnly, roleLabel } from '../api/permissions';
 import { defaultConnectionId } from '../api/connections';
 import type { Connection, ConnectionPage, SchemaSnapshot } from '../api/connections';
 import { activeScan, activeScanPage, failureMessage, scanError, statusLabel } from '../api/scans';
@@ -13,7 +14,8 @@ import { ScanFindings } from '../components/ScanFindings';
 
 export function Scans() {
   const { user } = useAuth();
-  const canScan = user?.role === 'ADMIN' || user?.role === 'ANALYST';
+  const readOnly = isReadOnly(user);
+  const canScan = can(user, 'scan.run');
   const [params, setParams] = useSearchParams();
   const [connections, setConnections] = useState<Connection[]>([]);
   const [connectionsLoading, setConnectionsLoading] = useState(true);
@@ -83,6 +85,7 @@ export function Scans() {
 
   return <div className="page-content scans-page">
     <div className="page-heading"><div><h1>Scan Results<span className="heading-dot">.</span></h1><p className="page-description">Run bounded samples and review personal-data candidates.</p></div><button className="button secondary" onClick={() => setRevision((value) => value + 1)} disabled={launching || connectionsLoading}><RefreshCw size={15} /> Refresh</button></div>
+    {readOnly && user && <p className="readonly-note">Read-only for your {roleLabel[user.role]} role: you can review scan results, but cannot start scans.</p>}
     <form className="panel scan-launch" onSubmit={launch} aria-label="Launch a scan"><div className="scan-launch-fields"><div className="form-field"><label htmlFor="scan-connection">Database connection</label><select id="scan-connection" value={connection ? connectionId : ''} disabled={connectionsLoading || launching} onChange={(event) => { setParams({ connection: event.target.value }); setHistoryPage(1); setLaunchError(''); }}><option value="" disabled>{connectionsLoading ? 'Loading connections…' : connections.length ? 'Choose a connection' : 'No connections saved'}</option>{connections.map((item) => <option key={item.id} value={item.id}>{item.name}{item.is_active ? '' : ' (inactive)'}</option>)}</select></div>{canScan && <><div className="form-field sample-limit"><label htmlFor="sample-limit">Rows per table <span>Maximum 10,000</span></label><input id="sample-limit" type="number" min={1} max={10000} step={1} value={sampleLimit} onChange={(event) => setSampleLimit(event.target.value)} required disabled={launching} /></div><button className="button primary" type="submit" disabled={launching || snapshotLoading || !connection?.is_active || !readySnapshot || !readySnapshot.catalog.tables.length}><Play size={15} />{launching ? 'Starting…' : 'Start scan'}</button></>}</div>
       <div className="scan-launch-note"><ScanLine size={15} /><p>{snapshotLoading ? 'Loading the latest discovered schema…' : readySnapshot ? `${readySnapshot.catalog.tables.length} tables in the latest saved schema. Scans continue in the background after you leave this page.` : connection ? 'Discover this database’s schema before starting a scan.' : 'Choose an authorized database connection to begin.'}</p>{connection && <Link className="text-link" to={`/schema?connection=${encodeURIComponent(connectionId)}`}>View schema <ArrowRight size={13} /></Link>}</div>
       {!canScan && <p className="role-note">Your account can review scans. An administrator or analyst can start one.</p>}

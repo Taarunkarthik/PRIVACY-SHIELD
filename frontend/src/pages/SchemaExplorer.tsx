@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router';
 import { ArrowRight, Braces, ChevronRight, Database, KeyRound, Layers3, Link2, RefreshCw, Search, Table2, Waypoints } from 'lucide-react';
 import { api, ApiError } from '../api/client';
 import { useAuth } from '../api/auth';
+import { can, isReadOnly, roleLabel } from '../api/permissions';
 import { connectionError, defaultConnectionId, discoveryScope } from '../api/connections';
 import type { Connection, ConnectionPage, SchemaSnapshot, SchemaTable } from '../api/connections';
 
@@ -11,7 +12,8 @@ const tableLabel = (table: SchemaTable) => `${table.schema}.${table.name}`;
 
 export function SchemaExplorer() {
   const { user } = useAuth();
-  const canDiscover = user?.role === 'ADMIN' || user?.role === 'ANALYST';
+  const readOnly = isReadOnly(user);
+  const canDiscover = can(user, 'connection.manage');
   const [params, setParams] = useSearchParams();
   const [connections, setConnections] = useState<Connection[]>([]);
   const [connectionsLoading, setConnectionsLoading] = useState(true);
@@ -89,6 +91,7 @@ export function SchemaExplorer() {
 
   return <div className="page-content schema-page">
     <div className="page-heading"><div><h1>Schema Explorer<span className="heading-dot">.</span></h1><p className="page-description">Explore columns, keys, and relationships without viewing source records.</p></div><div className="heading-actions"><button className="button secondary" disabled={connectionsLoading || loading || discovering} onClick={() => setRefresh((value) => value + 1)}><RefreshCw size={15} /> Refresh</button>{selectedConnection && <Link className="button primary" to={`/scans?connection=${encodeURIComponent(connectionId)}`}>View scans <ArrowRight size={14} /></Link>}</div></div>
+    {readOnly && user && <p className="readonly-note">Read-only for your {roleLabel[user.role]} role: you can explore discovered schemas, but cannot discover new ones.</p>}
     <section className="panel schema-controls"><div className="form-field"><label htmlFor="schema-connection">Database connection</label><select id="schema-connection" value={selectedConnection ? connectionId : ''} onChange={(event) => { setParams({ connection: event.target.value }); setSchemas(''); }} disabled={connectionsLoading || discovering}><option value="" disabled>{connectionsLoading ? 'Loading connections…' : connections.length ? 'Choose a connection' : 'No connections saved'}</option>{connections.map((item) => <option key={item.id} value={item.id}>{item.name}{item.is_active ? '' : ' (inactive)'}</option>)}</select></div>{canDiscover && <><div className="form-field"><label htmlFor="discovery-schemas">Schemas to inspect <span>Optional</span></label><input id="discovery-schemas" value={schemas} onChange={(event) => setSchemas(event.target.value)} placeholder="Default: enterprise/public, or enter schema names" disabled={discovering} maxLength={1000} /></div><button className="button primary" onClick={discover} disabled={!selectedConnection?.is_active || discovering || loading}><Waypoints size={16} />{discovering ? 'Discovering…' : 'Discover schema'}</button></>}</section>
     {(error || connectionsError) && <div className="error-box" role="alert">{connectionsError || error}</div>}
     {connectionsLoading || loading ? <section className="panel data-empty" role="status"><div className="loading-ring" /><p>Loading discovered schema…</p></section> : !selectedConnection ? <section className="panel data-empty"><Database size={35} strokeWidth={1.3} /><h2>{connections.length ? 'Choose a saved connection' : 'Connect a database to begin'}</h2><p>{connections.length ? 'Select a database above to view its latest discovered schema.' : 'Your workspace needs an authorized connection before it can explore database structure.'}</p><Link to="/connections" className="button secondary">View connections <ArrowRight size={15} /></Link></section> : !snapshot ? <section className="panel data-empty"><Waypoints size={38} strokeWidth={1.2} /><h2>{error ? 'Schema could not be loaded' : 'No schema discovered yet'}</h2><p>{error ? 'Refresh or discover the schema again when the connection is available.' : canDiscover && selectedConnection.is_active ? 'Choose Discover schema to map the tables available to this connection.' : 'An administrator or analyst can discover this connection’s accessible schemas.'}</p>{!selectedConnection.is_active && <span className="pill">Connection is inactive</span>}</section> : <>

@@ -2,12 +2,14 @@ import { useEffect, useState } from 'react';
 import { Check, ChevronLeft, ChevronRight, CircleCheck, RefreshCw, X } from 'lucide-react';
 import { api, ApiError } from '../api/client';
 import { useAuth } from '../api/auth';
+import { can, isReadOnly, roleLabel } from '../api/permissions';
 import type { PolicyPage } from '../api/policies';
 import { policyStatusLabel } from '../api/policies';
 
 export function Approvals() {
   const { user } = useAuth();
-  const canApprove = user?.role === 'ADMIN';
+  const canApprove = can(user, 'policy.approve');
+  const readOnly = isReadOnly(user);
   const [policies, setPolicies] = useState<PolicyPage | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -50,7 +52,9 @@ export function Approvals() {
       <div><h1>Approval Queue<span className="heading-dot">.</span></h1><p className="page-description">Review and decide on submitted masking policies before deployment.</p></div>
       <button className="button secondary" onClick={() => setRevision((v) => v + 1)} disabled={loading}><RefreshCw size={15} /> Refresh</button>
     </div>
-    {(!canApprove) && <p className="role-note">Your account can review pending policies. An administrator can approve or reject them.</p>}
+    {readOnly && user
+      ? <p className="readonly-note">Read-only for your {roleLabel[user.role]} role: you can review the approval queue, but only an administrator can approve or reject policies.</p>
+      : !canApprove && <p className="role-note">Your account can review pending policies. An administrator can approve or reject them.</p>}
     {(error || actionError) && <div className="error-box" role="alert">{error || actionError}</div>}
     <section className="panel" aria-label="Pending approvals">
       <div className="panel-heading"><div><h2>Pending approval <span className="count-badge">{policies?.total ?? '—'}</span></h2><p>Policies waiting for an administrator decision.</p></div><CircleCheck size={19} className="muted" /></div>

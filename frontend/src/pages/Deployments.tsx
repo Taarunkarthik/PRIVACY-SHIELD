@@ -2,10 +2,14 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { Check, ChevronLeft, ChevronRight, FileClock, Play, RefreshCw, X } from 'lucide-react';
 import { api, ApiError } from '../api/client';
+import { useAuth } from '../api/auth';
+import { isReadOnly, roleLabel } from '../api/permissions';
 import type { DeploymentPage } from '../api/policies';
 import { deploymentErrorHint, deploymentStatusLabel } from '../api/policies';
 
 export function Deployments() {
+  const { user } = useAuth();
+  const readOnly = isReadOnly(user);
   const [deployments, setDeployments] = useState<DeploymentPage | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -28,6 +32,7 @@ export function Deployments() {
       <div><h1>Deployments<span className="heading-dot">.</span></h1><p className="page-description">Track policy deployments and their outcomes.</p></div>
       <button className="button secondary" onClick={() => setRevision((v) => v + 1)} disabled={loading}><RefreshCw size={15} /> Refresh</button>
     </div>
+    {readOnly && user && <p className="readonly-note">Read-only for your {roleLabel[user.role]} role: you can review deployment history, but cannot deploy or retry policies.</p>}
     {error && <div className="error-box" role="alert">{error}</div>}
     <section className="panel" aria-label="Deployments">
       <div className="panel-heading"><div><h2>Deployment history <span className="count-badge">{deployments?.total ?? '—'}</span></h2><p>All policy deployment attempts and their status.</p></div><FileClock size={19} className="muted" /></div>

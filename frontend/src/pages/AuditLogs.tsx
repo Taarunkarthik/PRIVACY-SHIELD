@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Check, ChevronLeft, ChevronRight, Copy, FileClock, RefreshCw, ShieldCheck, X } from 'lucide-react';
 import { api, ApiError } from '../api/client';
 import { useAuth } from '../api/auth';
+import { can } from '../api/permissions';
 import { auditChainReasonText, shortHash } from '../api/auditChain';
 import type { AuditChainVerification } from '../api/auditChain';
 import type { AuditEventPage } from '../api/policies';
@@ -30,7 +31,7 @@ const ICON = { flexShrink: 0 };
 // Recomputes the hash chain on request only: it reads the whole log, so it never runs on page load.
 function LogIntegrity() {
   const { user } = useAuth();
-  const canVerify = user?.role === 'ADMIN' || user?.role === 'AUDITOR';
+  const canVerify = can(user, 'audit.verify');
   const [result, setResult] = useState<AuditChainVerification | null>(null);
   const [verifying, setVerifying] = useState(false);
   const [error, setError] = useState('');

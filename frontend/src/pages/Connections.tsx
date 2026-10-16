@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router';
 import { ArrowRight, CheckCircle2, ChevronLeft, ChevronRight, Database, Pencil, PlugZap, Plus, RefreshCw, Search, Waypoints } from 'lucide-react';
 import { api } from '../api/client';
 import { useAuth } from '../api/auth';
+import { can, isReadOnly, roleLabel } from '../api/permissions';
 import { connectionError, discoveryScope } from '../api/connections';
 import type { Connection, ConnectionCheck, ConnectionPage, SchemaSnapshot } from '../api/connections';
 import { ConnectionForm } from '../components/ConnectionForm';
@@ -11,7 +12,8 @@ export function Connections() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const isAdmin = user?.role === 'ADMIN';
-  const canDiscover = isAdmin || user?.role === 'ANALYST';
+  const readOnly = isReadOnly(user);
+  const canDiscover = can(user, 'connection.manage');
   const [data, setData] = useState<ConnectionPage | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -54,6 +56,7 @@ export function Connections() {
   const visible = data?.items.filter((item) => `${item.name} ${item.host} ${item.database_name}`.toLowerCase().includes(filter.toLowerCase())) ?? [];
   return <div className="page-content connections-page">
     <div className="page-heading"><div><h1>Connections<span className="heading-dot">.</span></h1><p className="page-description">Connect authorized databases and discover their structure.</p></div><div className="heading-actions"><button className="button secondary" aria-label="Refresh connections" disabled={loading || Boolean(busy)} onClick={() => setRevision((value) => value + 1)}><RefreshCw size={15} className={loading ? 'spin' : ''} /></button>{isAdmin && <button className="button primary" onClick={() => { setEditing('new'); setNotice(''); }} disabled={Boolean(busy) || Boolean(editing)}><Plus size={16} /> Add database</button>}</div></div>
+    {readOnly && user && <p className="readonly-note">Read-only for your {roleLabel[user.role]} role: you can browse connections and schemas, but cannot add, edit, test, or discover them.</p>}
     {editing && isAdmin && <ConnectionForm key={editing === 'new' ? 'new' : editing.id} connection={editing === 'new' ? undefined : editing} onCancel={() => setEditing(null)} onSaved={() => { setEditing(null); setPage(1); setFilter(''); setNotice('Connection saved. Test access or discover its schema when you are ready.'); setRevision((value) => value + 1); }} />}
     {notice && <div className="success-box" role="status"><CheckCircle2 size={17} /><span>{notice}</span></div>}
     {error && <div className="error-box" role="alert">{error}<button className="text-button" onClick={() => setRevision((value) => value + 1)}>Refresh connections</button></div>}
