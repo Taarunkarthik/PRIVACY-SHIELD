@@ -300,7 +300,7 @@ npm ci && npm run typecheck && npm test && npm run build
 
 Integration tests require migrated PostgreSQL, Redis and a **separate** Linux Celery worker. A mocked broker does not satisfy that gate. The [GitHub Actions workflow](.github/workflows/ci.yml) provisions the same real services in CI.
 
-Per-phase evidence: [`docs/verification.md`](docs/verification.md) and `docs/verification-phase2.md` through `docs/verification-phase7.md`.
+Per-phase evidence: [`docs/verification.md`](docs/verification.md) and `docs/verification-phase2.md` through `docs/verification-phase7.md`; the pre-submission hardening pass is recorded in [`docs/verification-hardening.md`](docs/verification-hardening.md).
 
 ---
 
