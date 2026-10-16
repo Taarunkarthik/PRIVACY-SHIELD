@@ -48,6 +48,19 @@ def test_invalid_regex_is_rejected_without_echoing_the_pattern():
     assert private_regex not in str(excinfo.value)
 
 
+def test_catastrophic_regex_is_rejected_without_echoing_the_pattern():
+    private_regex = "(a+)+"
+    with pytest.raises(ValidationError) as excinfo:
+        CustomPatternInput(name="dangerous", category="PII", regex=private_regex)
+    assert private_regex not in str(excinfo.value)
+
+
+def test_bounded_real_world_regex_is_accepted():
+    regex = r"(?<![A-Za-z0-9])[2-9][0-9]{3}(?:[ -]?[0-9]{4}){2}"
+    pattern = CustomPatternInput(name="Aadhaar shape", category="PII", regex=regex)
+    assert pattern.regex == regex
+
+
 @pytest.mark.parametrize("regex", ["", "x" * 201])
 def test_regex_length_is_bounded(regex):
     with pytest.raises(ValidationError):

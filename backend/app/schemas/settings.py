@@ -1,10 +1,11 @@
 """Bounded, non-secret operator settings and custom detection pattern contracts."""
 
-import re
 from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from app.core.safe_regex import validate_custom_regex
 
 PatternCategory = Literal["PII", "FINANCIAL", "HEALTH", "OTHER"]
 MAX_CUSTOM_PATTERNS = 20
@@ -37,10 +38,12 @@ class CustomPatternInput(BaseModel):
         if not value or "\x00" in value:
             raise ValueError("Pattern regex must contain non-null text")
         try:
-            re.compile(value)
-        except re.error:
+            # A malformed pattern and one prone to catastrophic backtracking are
+            # both rejected here; the worker thread has no matching timeout.
+            validate_custom_regex(value, max_length=MAX_PATTERN_REGEX)
+        except ValueError:
             # Never echo the offending pattern back to the caller.
-            raise ValueError("Pattern regex does not compile") from None
+            raise ValueError("Pattern regex is not allowed") from None
         return value
 
 

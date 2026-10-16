@@ -41,6 +41,9 @@ celery_app.conf.update(
             "schedule": 15.0,
         },
         "seal-audit-chain": {"task": "privacyshield.seal_audit_chain", "schedule": 15.0},
+        # Rides the same sweep cadence as the chain sealer; the delete itself is
+        # idempotent and bounded, so 15 s carries no extra risk.
+        "prune-sessions": {"task": "privacyshield.prune_sessions", "schedule": 15.0},
     },
 )
 
@@ -130,3 +133,12 @@ def seal_audit_chain() -> None:
         logging.getLogger("privacyshield").error(
             "Audit chain sealing interrupted; retried on the next run"
         )
+
+
+@celery_app.task(name="privacyshield.prune_sessions", ignore_result=True)
+def prune_sessions() -> None:
+    from app.services.maintenance import prune_expired_sessions
+
+    # The service already fails soft; the wrapper keeps a beat task from ever
+    # propagating and marks the run as handled either way.
+    prune_expired_sessions()

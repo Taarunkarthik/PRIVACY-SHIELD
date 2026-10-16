@@ -105,6 +105,15 @@ def _seal_audit_chain() -> int:
     return seal_audit_chain()
 
 
+def _prune_sessions() -> int:
+    # Celery beat prunes expired sessions in the worker deployment. Without a
+    # worker, the sweep is the only thing that can, so a single-service
+    # deployment still drops sessions that can no longer authenticate.
+    from app.services.maintenance import prune_expired_sessions
+
+    return prune_expired_sessions()
+
+
 RUNNERS: dict[str, Callable[[UUID], None]] = {
     "scan": _run_scan,
     "classify": _run_classification,
@@ -115,6 +124,7 @@ SWEEPERS: tuple[Callable[[], int], ...] = (
     _sweep_classifications,
     _sweep_deployments,
     _seal_audit_chain,
+    _prune_sessions,
 )
 
 
