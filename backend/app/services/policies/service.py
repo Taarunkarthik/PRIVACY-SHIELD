@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.audit import record_event
+from app.core.config import get_settings
 from app.models import (
     AuditEvent,
     DatabaseConnection,
@@ -213,6 +214,19 @@ def _locked_policy(db: Session, policy_id: UUID) -> MaskingPolicy:
     return policy
 
 
+def ensure_can_approve(
+    policy_created_by: UUID, approver_id: UUID, require_separate: bool
+) -> None:
+    """Refuse self-approval when separation of duties is enabled.
+
+    Pure and side-effect free, so the rule can be unit tested without a
+    database. ``require_separate`` is off by default (see ``Settings``), because
+    the demo runs with a single administrator.
+    """
+    if require_separate and policy_created_by == approver_id:
+        raise PolicyFailure("SEPARATE_APPROVER_REQUIRED")
+
+
 def submit_policy(db: Session, user: User, policy_id: UUID) -> MaskingPolicy:
     policy = _locked_policy(db, policy_id)
     if policy.status != "DRAFT":
@@ -237,6 +251,9 @@ def approve_policy(db: Session, user: User, policy_id: UUID) -> MaskingPolicy:
     policy = _locked_policy(db, policy_id)
     if policy.status != "PENDING_APPROVAL":
         raise PolicyFailure("INVALID_TRANSITION")
+    ensure_can_approve(
+        policy.created_by, user.id, get_settings().require_separate_approver
+    )
     plan = build_plan(db, policy)
     policy.status = "APPROVED"
     policy.compiled_plan_fingerprint = plan.plan_hash

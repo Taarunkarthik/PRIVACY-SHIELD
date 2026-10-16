@@ -9,6 +9,7 @@ from app.api.connections import find_connection
 from app.api.dependencies import current_user, require_roles
 from app.core.audit import record_event
 from app.core.database import get_db
+from app.core.rate_limit import check_job_rate_limit
 from app.models import ScanJob, ScanResult, SchemaSnapshot, User
 from app.schemas.scans import ScanCreate, ScanPage, ScanResponse, ScanResultPage, ScanResultResponse
 from app.services.scanning.jobs import connection_fingerprint, enqueue_scan
@@ -29,6 +30,7 @@ def create_scan(
     user: User = Depends(require_roles("ADMIN", "ANALYST")),
     db: Session = Depends(get_db),
 ) -> ScanJob:
+    check_job_rate_limit(str(user.id))
     connection = find_connection(db, payload.connection_id, lock=True)
     if not connection.is_active:
         raise HTTPException(409, "Reactivate this connection before scanning")

@@ -47,6 +47,13 @@ class Settings(BaseSettings):
     session_hours: int = Field(default=8, ge=1, le=24)
     login_attempt_limit: int = Field(default=10, ge=1, le=100)
     login_window_seconds: int = Field(default=300, ge=30, le=3600)
+    # Generous by default, so ordinary use and the single-admin demo are
+    # unaffected; see app/core/rate_limit.py for the per-process caveat.
+    job_rate_limit: int = Field(default=60, ge=1, le=10000)
+    job_rate_window_seconds: int = Field(default=60, ge=1, le=3600)
+    # Separation of duties for policy approval. Off because the demo runs with a
+    # single administrator, who must be able to approve the policy they created.
+    require_separate_approver: bool = False
 
     @field_validator("database_url", "migration_database_url")
     @classmethod

@@ -62,6 +62,7 @@ def _handle_failure(exc: PolicyFailure) -> None:
         "POLICY_NOT_FOUND": 404,
         "INVALID_TRANSITION": 409,
         "INSUFFICIENT_PERMISSIONS": 403,
+        "SEPARATE_APPROVER_REQUIRED": 403,
         "DEPLOYMENT_IN_PROGRESS": 409,
         "DUPLICATE_RULE": 422,
         "IDEMPOTENCY_CONFLICT": 409,

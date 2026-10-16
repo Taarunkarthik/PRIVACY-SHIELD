@@ -9,6 +9,7 @@ from app.api.scans import find_scan
 from app.core.audit import record_event
 from app.core.config import get_settings
 from app.core.database import get_db
+from app.core.rate_limit import check_job_rate_limit
 from app.models import ClassificationJob, ClassificationJobItem, PIIClassification, ScanResult, User
 from app.schemas.classifications import (
     ClassificationCreate,
@@ -55,6 +56,7 @@ def create_classification(
     user: User = Depends(require_roles("ADMIN", "ANALYST")),
     db: Session = Depends(get_db),
 ) -> ClassificationJob:
+    check_job_rate_limit(str(user.id))
     from app.services.classification.adapter import PROMPT_VERSION
 
     scan = find_scan(db, scan_id)
