@@ -2,6 +2,7 @@ import { BrowserRouter, Link, Route, Routes } from 'react-router';
 import { AuthProvider, useAuth } from './api/auth';
 import { Brand } from './components/Brand';
 import { DataField } from './components/DataField';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { MotionProvider } from './components/motion';
 import { Layout } from './components/Layout';
 import { Dashboard } from './pages/Dashboard';
@@ -31,5 +32,5 @@ function Background() {
 }
 
 export function App() {
-  return <BrowserRouter><AuthProvider><MotionProvider><Background /><SessionApp /></MotionProvider></AuthProvider></BrowserRouter>;
+  return <BrowserRouter><AuthProvider><MotionProvider><Background /><ErrorBoundary><SessionApp /></ErrorBoundary></MotionProvider></AuthProvider></BrowserRouter>;
 }
