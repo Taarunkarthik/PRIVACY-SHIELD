@@ -4,6 +4,8 @@ import { ArrowRight, ArrowUpRight, ChevronRight, CircleCheck, Database, Fingerpr
 import { Bar, BarChart, Cell, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { api } from '../api/client';
 import type { DashboardInsights, DashboardSummary } from '../api/client';
+import { useAuth } from '../api/auth';
+import { can, isReadOnly, roleBlurb, roleCapabilities, roleLabel } from '../api/permissions';
 import { classificationCategory, riskLabels } from '../api/classifications';
 import type { Risk } from '../api/classifications';
 import { policyStatusLabel } from '../api/policies';
@@ -40,6 +42,12 @@ function timeAgo(iso: string) {
 
 const BAR_ROW_HEIGHT = 26;
 
+/* A "this is allowed" mark: a small tick drawn in the current colour so the
+ * CSS owns the colour (mint) and this stays a plain inline SVG. */
+function AllowedMark() {
+  return <svg className="cap-mark" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false"><path d="M3.4 8.5l3 3 6.2-6.9" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+}
+
 interface BarRow { key: string; name: string; value: number; fill?: string }
 
 /**
@@ -70,6 +78,8 @@ function BarList({ label, unit, rows, labelWidth }: { label: string; unit: strin
 }
 
 export function Dashboard() {
+  const { user } = useAuth();
+  const role = user?.role;
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [insights, setInsights] = useState<DashboardInsights | null>(null);
   const [insightsFailed, setInsightsFailed] = useState(false);
@@ -111,12 +121,17 @@ export function Dashboard() {
 
   return <div className="page-content dashboard">
     <div className="page-heading">
-      <div><h1>Workspace overview<span className="heading-dot">.</span></h1><p className="page-description">A clear view of your data and the protections around it.</p></div>
+      <div><h1>Workspace overview<span className="heading-dot">.</span></h1><p className="page-description">A clear view of your data and the protections around it.</p>{role && <p className="role-line">{roleLabel[role]} · {roleBlurb[role]}</p>}</div>
       <div className="heading-actions">
         <p className="updated-caption" role="status">{loading ? 'Refreshing workspace totals…' : updated ? `Last refreshed ${updated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'No workspace totals loaded'}</p>
         <button className="button secondary refresh-button" onClick={refresh} disabled={loading}><RefreshCw size={15} className={loading ? 'spin' : ''} />{loading ? 'Refreshing…' : 'Refresh'}</button>
       </div>
     </div>
+    {role && isReadOnly(user) && <p className="readonly-note">Read-only for your {roleLabel[role]} role: you can inspect coverage and the audit trail, but nothing here can be changed.</p>}
+    {role && <ul className="cap-strip" aria-label="What your role can do">
+      {roleCapabilities[role].may.map((item) => <li key={item} className="cap-item yes"><AllowedMark /><span>{item}</span></li>)}
+      {roleCapabilities[role].mayNot.map((item) => <li key={item} className="cap-item no"><span className="cap-mark" aria-hidden="true">·</span><span>{item}</span></li>)}
+    </ul>}
     {error && <div className="error-box" role="alert">{error}{summary && ' The totals below are from the last successful refresh.'}<button className="text-button" onClick={refresh}>Try again</button></div>}
 
     <section className="stats-grid" aria-label="Workspace statistics" aria-busy={loading}>
@@ -167,8 +182,9 @@ export function Dashboard() {
             <div key={item.status}><dt><span className={`key-dot ${statusTone[item.status] ?? 'neutral'}`} aria-hidden="true" />{policyStatusLabel[item.status as PolicyStatus] ?? item.status}</dt><dd>{item.policies.toLocaleString()}</dd></div>
           ))}
         </dl>}
+        {role === 'ANALYST' && <p className="chart-note quiet">You can create and submit policies for approval; an administrator gives the decision and deploys them.</p>}
         <div className="pipeline-links">
-          <Link className="activity-row" to="/approvals"><span className="activity-icon tone-exposed"><CircleCheck size={18} /></span><span><strong>Pending approvals</strong><small>Policies awaiting a decision</small></span><b>{summary?.pending_approvals.toLocaleString() ?? '—'}</b><ChevronRight size={16} /></Link>
+          {can(user, 'policy.approve') && <Link className="activity-row" to="/approvals"><span className="activity-icon tone-exposed"><CircleCheck size={18} /></span><span><strong>Pending approvals</strong><small>Policies awaiting a decision</small></span><b>{summary?.pending_approvals.toLocaleString() ?? '—'}</b><ChevronRight size={16} /></Link>}
           <Link className="activity-row" to="/scans"><span className="activity-icon tone-neutral"><ScanLine size={18} /></span><span><strong>Scan jobs</strong><small>Total discovery scans</small></span><b>{summary?.scan_jobs.toLocaleString() ?? '—'}</b><ChevronRight size={16} /></Link>
         </div>
         <p className="panel-footnote">A policy needs an explicit approval, then a separate deployment action.</p>
