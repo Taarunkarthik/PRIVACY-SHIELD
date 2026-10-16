@@ -4,7 +4,7 @@ Each phase is gated on relevant tests, a reviewed commit, a successful push to `
 
 ## Three-day submission target
 
-The target submission date is **12 October 2026**. Deliverables are the repository's working source code and reproducible demonstration; a separate report and slide deck are not required. The compressed sequence below is an estimate, not a promise that an unverified feature will be delivered by its target day. Preserve the seven test-and-push gates even when multiple phases fit into a day.
+The target submission date was **12 October 2026**; the submission build is complete and verification is ongoing. Deliverables are the repository's working source code and reproducible demonstration; a separate report and slide deck are not required. The compressed sequence below is an estimate, not a promise that an unverified feature will be delivered by its target day. Preserve the seven test-and-push gates even when multiple phases fit into a day.
 
 | Work day | Target work |
 | --- | --- |

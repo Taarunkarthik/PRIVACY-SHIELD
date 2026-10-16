@@ -264,6 +264,10 @@ docker compose exec api python -m app.cli create-admin --email admin@example.com
 
 Then open **http://localhost:8080**.
 
+### One-command demo
+
+With the stack running and an administrator account created, `python scripts/demo.py` walks the full workflow in one step: it registers the synthetic target, runs a bounded scan, then creates, approves and deploys a masking policy, and prints a compact before/after summary of the masked columns. It needs the same prerequisites as the other scripts in `scripts/`.
+
 Optional local AI recommendations: enable the `ai` Compose profile to run Ollama.
 
 **Hosted option:** a Render Blueprint (`render.yaml`) deploys the full stack. See [`docs/deploy-render.md`](docs/deploy-render.md).
@@ -331,3 +335,5 @@ Per-phase evidence: [`docs/verification.md`](docs/verification.md) and `docs/ver
 ## Author
 
 **Taarun**, B.Tech Computer Science Engineering, Amrita Bangalore. Built for DBMS coursework.
+
+Released under the [MIT License](LICENSE); see [`SECURITY.md`](SECURITY.md) for how to report a vulnerability.
