@@ -1,7 +1,7 @@
 /*
  * The frame around every page: sidebar, top bar, page heading, the sign-in
- * page and the session-loading screen. The main column has no background of
- * its own, so the data field shows in the margins and behind page headings.
+ * page and the session-loading screen. Paper surfaces sit on the washi ground,
+ * separated by 1px hairlines rather than shadows.
  */
 
 /* Application shell */
@@ -19,10 +19,10 @@
 
 .nav-group { margin-bottom: 14px; }
 .nav-group > p { padding: 0 26px; margin-bottom: 4px; font-size: 12px; color: var(--text-3); }
-.nav-item { display: flex; align-items: center; gap: 11px; min-height: 38px; margin: 2px 12px; padding: 8px 13px; border-radius: var(--radius-s); font-size: 14px; color: var(--text-2); }
+.nav-item { display: flex; align-items: center; gap: 11px; min-height: 38px; margin: 2px 12px; padding: 8px 13px; border-left: 2px solid transparent; border-radius: var(--radius-s); font-size: 14px; color: var(--text-2); }
 .nav-item svg { flex-shrink: 0; }
 .nav-item:hover { background: var(--raised-hover); color: var(--text); }
-.nav-item.active { background: var(--selected); color: var(--text); font-weight: 600; }
+.nav-item.active { background: var(--selected); border-left-color: var(--accent); color: var(--text); font-weight: 600; }
 .nav-item.active svg { color: var(--mint); }
 
 .sidebar-bottom { display: flex; align-items: center; gap: 10px; margin: auto 22px 16px; padding-top: 16px; color: var(--text-3); }
@@ -34,6 +34,8 @@
 .sidebar-user strong { display: block; max-width: 138px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 500; color: var(--text); }
 .sidebar-user small { display: block; font-size: 12px; color: var(--text-3); }
 .sidebar-user .icon-button { margin-left: auto; }
+/* The signed-in role, as a small hairline pill under the account email. */
+.role-badge { display: inline-block; margin-top: 3px; padding: 1px 7px; border: 1px solid var(--line); border-radius: 999px; font-size: 11px; font-weight: 500; line-height: 1.6; color: var(--text-3); white-space: nowrap; }
 
 /* A short window (a 1280x720 projector): tighten the sidebar so the account row and sign-out stay in view. */
 @media (max-height: 800px) {
@@ -46,15 +48,11 @@
 }
 
 .main-wrap { display: flex; flex-direction: column; min-width: 0; width: calc(100% - 248px); margin-left: 248px; }
-.topbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; height: 56px; padding: 0 32px; border-bottom: 1px solid var(--line); background: rgb(8 36 42 / .78); }
+.topbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; height: 56px; padding: 0 32px; border-bottom: 1px solid var(--line); background: var(--paper); }
 .breadcrumbs { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 13px; color: var(--text-3); }
 .breadcrumbs strong { font-weight: 500; color: var(--text); white-space: nowrap; }
 .topbar-right { display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--text-2); }
 .environment-tag { display: flex; align-items: center; gap: 7px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; font-size: 12px; color: var(--text-2); white-space: nowrap; }
-
-/* Pause or resume the data field. */
-.motion-toggle { display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--text-2); font-size: 12px; white-space: nowrap; }
-.motion-toggle:hover { background: var(--raised-hover); color: var(--text); border-color: var(--line-strong); }
 
 .mobile-menu, .mobile-close, .mobile-backdrop { display: none; }
 .shell-error { margin: 20px 32px 0; }
@@ -69,19 +67,19 @@
 .heading-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 .updated-caption { font-size: 12px; color: var(--text-3); text-align: right; }
 
-/* Sign-in: the data field at full strength, the form on a solid panel. */
+/* Sign-in: the washi ground, the form on a solid paper panel. */
 .login-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(340px, 420px); align-items: stretch; gap: 56px; min-height: 100svh; padding: 40px 64px 36px 56px; }
 .login-story { display: flex; flex-direction: column; justify-content: space-between; align-items: flex-start; gap: 32px; min-width: 0; }
-/* The brand and the footnote sit on small solid plates so the field never runs through them. */
-.login-story > .brand, .session-loading > .brand { padding: 10px 18px 10px 12px; border: 1px solid var(--line); border-radius: var(--radius-m); background: rgb(8 36 42 / .9); }
+/* The brand and the footnote sit on small paper plates so the grid never runs through them. */
+.login-story > .brand, .session-loading > .brand { padding: 10px 18px 10px 12px; border: 1px solid var(--line); border-radius: var(--radius-m); background: var(--paper); }
 .login-story-copy { position: relative; max-width: 620px; }
-/* A soft scrim keeps the copy readable where the field passes behind it. */
-.login-story-copy::before { content: ''; position: absolute; inset: 0 -8px; z-index: -1; border-radius: 48px; background: rgb(11 45 52 / .93); box-shadow: 0 0 56px 64px rgb(11 45 52 / .93); pointer-events: none; }
+/* A soft paper wash keeps the copy clear of the ground grid behind it. */
+.login-story-copy::before { content: ''; position: absolute; inset: 0 -8px; z-index: -1; border-radius: 48px; background: var(--ground); box-shadow: 0 0 56px 64px var(--ground); pointer-events: none; }
 .login-story h1 { max-width: 11ch; font-size: clamp(40px, 5.2vw, 76px); font-weight: 600; line-height: .98; letter-spacing: -.035em; }
 .login-story-copy > p { max-width: 46ch; margin-top: 22px; font-size: 16px; line-height: 1.55; color: var(--text-2); }
 
 /* The colour key for the whole product, on one invented value. */
-.mask-key { display: inline-grid; gap: 6px; margin: 26px 0 0; padding: 12px 16px; border: 1px solid var(--line); border-radius: var(--radius-m); background: rgb(8 36 42 / .7); }
+.mask-key { display: inline-grid; gap: 6px; margin: 26px 0 0; padding: 12px 16px; border: 1px solid var(--line); border-radius: var(--radius-m); background: var(--paper); }
 .mask-key > div { display: grid; grid-template-columns: 92px auto; align-items: center; gap: 12px; }
 .mask-key dt { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-2); }
 .mask-key dd { margin: 0; }
@@ -89,7 +87,7 @@
 .mask-key code.exposed { color: var(--amber); }
 .mask-key code.masked { color: var(--mint); }
 
-.login-footer { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; padding: 7px 8px 7px 14px; border: 1px solid var(--line); border-radius: 22px; background: rgb(8 36 42 / .9); font-size: 13px; color: var(--text-2); }
+.login-footer { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; padding: 7px 8px 7px 14px; border: 1px solid var(--line); border-radius: 22px; background: var(--paper); font-size: 13px; color: var(--text-2); }
 
 .login-form-panel { align-self: center; padding: 34px 32px 28px; border: 1px solid var(--line-strong); border-radius: var(--radius-l); background: var(--panel-solid); box-shadow: var(--shadow-float); }
 .login-form-wrap h2 { font-size: 26px; line-height: 1.2; }
@@ -109,7 +107,7 @@
 .login-help { margin-top: 20px; font-size: 13px; color: var(--text-3); text-align: center; }
 
 .session-loading { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; min-height: 100svh; font-size: 14px; color: var(--text); }
-.session-loading > p { padding: 4px 12px; border-radius: 999px; background: rgb(8 36 42 / .9); }
+.session-loading > p { padding: 4px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--paper); }
 
 @media (max-width: 1200px) {
   .sidebar { width: 228px; }
@@ -135,12 +133,10 @@
   .mobile-menu { display: inline-flex; margin-left: -8px; }
   .mobile-close { display: inline-flex; margin-left: auto; color: var(--text-2); }
   .sidebar-brand { display: flex; align-items: center; padding-right: 14px; }
-  .mobile-backdrop { display: block; position: fixed; inset: 0; z-index: 30; border: 0; background: rgb(3 18 22 / .7); }
+  .mobile-backdrop { display: block; position: fixed; inset: 0; z-index: 30; border: 0; background: rgb(29 27 24 / .35); }
   .skip-link { left: 14px; }
   .topbar { padding: 0 16px; gap: 8px; }
   .breadcrumbs > span, .breadcrumbs > svg { display: none; }
-  .motion-toggle > span { display: none; }
-  .topbar .motion-toggle { padding: 4px 8px; }
   .page-content { padding: 20px 16px 32px; }
   .page-heading { flex-wrap: wrap; align-items: flex-start; gap: 12px; margin-bottom: 16px; }
   .page-heading > div:first-child { flex: 1 1 190px; }
@@ -152,7 +148,7 @@
   .login-layout { grid-template-columns: minmax(0, 1fr); align-content: start; gap: 22px; padding: 22px 16px 28px; }
   .login-story { gap: 20px; }
   .login-story h1 { max-width: none; font-size: 34px; line-height: 1.05; }
-  .login-story-copy::before { box-shadow: 0 0 28px 30px rgb(11 45 52 / .93); }
+  .login-story-copy::before { box-shadow: 0 0 28px 30px var(--ground); }
   .login-story-copy > p, .mask-key { display: none; }
   .login-footer { border-radius: var(--radius-m); padding: 10px 12px; }
   .login-form-panel { padding: 26px 20px 22px; }

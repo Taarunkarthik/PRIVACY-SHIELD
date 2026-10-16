@@ -1,21 +1,21 @@
 /**
- * Chart colours for the dark surface. Recharts takes its colours as props,
- * so the values in src/theme/tokens.css are mirrored here.
+ * Chart colours for the light paper surface. Recharts takes its colours as
+ * props, so the values in src/theme/tokens.css are mirrored here.
  *
  * `exposed` and `masked` are the chart-weight steps of the product's two
- * accents (amber = exposed, mint = masked). `risk` is a one-hue ordinal ramp,
- * brightest for the most severe level. All were checked with the dataviz
- * palette validator against the panel colour as rendered, #11373d: the pair as a
- * categorical palette in dark mode, the ramp with --ordinal.
+ * accents (amber = exposed, green = masked). `risk` is a categorical ramp
+ * across the four meanings — red, amber, indigo, green — so each severity
+ * stays apart on paper. All were checked against the panel colour as
+ * rendered, #f7f4ec, for normal-vision contrast and CVD separation.
  */
 export const chart = {
-  exposed: '#bd8526',
-  masked: '#2ea686',
-  risk: { CRITICAL: '#ffd88f', HIGH: '#e7a93d', MEDIUM: '#b9802a', LOW: '#8d6025' } as Record<string, string>,
+  exposed: '#b07d2a',
+  masked: '#3f7a5e',
+  risk: { CRITICAL: '#b23a2e', HIGH: '#956517', MEDIUM: '#33456e', LOW: '#35705a' } as Record<string, string>,
   // Text and chrome never take a series colour.
-  text: '#eef6f3',
-  textMuted: '#bcd3d2',
-  axis: 'rgba(168, 214, 212, 0.32)',
-  hover: 'rgba(255, 255, 255, 0.06)',
-  tooltip: { background: '#0a272d', border: 'rgba(168, 214, 212, 0.32)' },
+  text: '#1d1b18',
+  textMuted: '#857c6e',
+  axis: 'rgba(29, 27, 24, 0.25)',
+  hover: 'rgba(29, 27, 24, 0.06)',
+  tooltip: { background: '#f7f4ec', border: 'rgba(29, 27, 24, 0.18)' },
 } as const;

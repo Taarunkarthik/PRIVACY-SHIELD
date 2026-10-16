@@ -1,6 +1,7 @@
 /*
- * Shared components on the dark ground: brand, buttons, links, pills, panels,
- * messages and loading states. Feature-specific rules stay in src/styles.css,
+ * Shared components on the paper ground: brand, buttons, links, pills, panels,
+ * messages and loading states. Surfaces are paper with 1px hairlines; colour is
+ * carried by meaning tokens. Feature-specific rules stay in src/styles.css,
  * which is loaded after this file.
  */
 
@@ -13,7 +14,7 @@
 
 .muted { color: var(--text-3); }
 
-/* Buttons. The primary action is a light key on the dark ground; mint and amber are kept for meaning. */
+/* Buttons. The primary action is an ink fill; mint and amber are kept for meaning. */
 .button {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
   min-height: 38px; padding: 8px 14px;
@@ -22,7 +23,7 @@
   transition: background-color .12s, border-color .12s, color .12s;
 }
 .button.primary { background: var(--text); color: var(--ink); }
-.button.primary:hover:not(:disabled) { background: #fff; }
+.button.primary:hover:not(:disabled) { background: var(--text-2); }
 .button.secondary { background: transparent; border-color: var(--line-strong); color: var(--text); }
 .button.secondary:hover:not(:disabled) { background: var(--raised-hover); border-color: var(--text-3); }
 .button.danger { background: transparent; border-color: var(--danger-line); color: var(--danger); }
@@ -42,7 +43,7 @@
 .pill {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 3px 9px;
-  border: 1px solid var(--line); border-radius: 5px;
+  border: 1px solid var(--line); border-radius: var(--radius-l);
   background: var(--tint); color: var(--text-2);
   font-size: 12px; font-weight: 500; line-height: 1.5; white-space: nowrap;
 }
@@ -70,9 +71,11 @@
 .panel-footnote { margin-top: auto; padding: 11px 20px 13px; border-top: 1px solid var(--line); font-size: 12px; line-height: 1.5; color: var(--text-3); }
 
 /* Messages */
-/* Messages sit on a solid base so the data field never shows through their text. */
-.error-box { margin-bottom: 18px; padding: 11px 14px; border: 1px solid var(--danger-line); border-radius: var(--radius-s); background: linear-gradient(var(--danger-soft), var(--danger-soft)), var(--panel-solid); color: var(--danger); font-size: 14px; line-height: 1.5; }
-.notice { margin-top: 18px; padding: 11px 14px; border: 1px solid var(--info-line); border-radius: var(--radius-s); background: linear-gradient(var(--info-soft), var(--info-soft)), var(--panel-solid); color: var(--info); font-size: 14px; }
+.error-box { margin-bottom: 18px; padding: 11px 14px; border: 1px solid var(--danger-line); border-radius: var(--radius-s); background: var(--danger-soft); color: var(--danger); font-size: 14px; line-height: 1.5; }
+.notice { margin-top: 18px; padding: 11px 14px; border: 1px solid var(--info-line); border-radius: var(--radius-s); background: var(--info-soft); color: var(--info); font-size: 14px; }
+
+/* A read-only page states its limits once, up top. */
+.readonly-note { margin: 0 0 18px; padding: 11px 14px; border: 1px solid var(--info-line); border-left: 3px solid var(--info); border-radius: var(--radius-s); background: var(--info-soft); color: var(--text-2); font-size: 13px; line-height: 1.6; }
 
 /* Loading */
 .loading-ring { width: 22px; height: 22px; border: 2px solid var(--line-strong); border-top-color: var(--mint); border-radius: 50%; }

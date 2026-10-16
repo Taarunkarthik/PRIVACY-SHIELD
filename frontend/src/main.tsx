@@ -2,7 +2,15 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
 // Fonts are bundled with the application: the Content-Security-Policy allows no other origin.
-import '@fontsource-variable/bricolage-grotesque/index.css';
+// Display and body faces for the paper & ink theme.
+// Latin subsets only: the interface is English, and the full Japanese subsets
+// would add roughly 30 glyph files to the bundle.
+import '@fontsource/shippori-mincho/latin-400.css';
+import '@fontsource/shippori-mincho/latin-500.css';
+import '@fontsource/shippori-mincho/latin-600.css';
+import '@fontsource/zen-kaku-gothic-new/latin-400.css';
+import '@fontsource/zen-kaku-gothic-new/latin-500.css';
+// Retained: still referenced by the token and shared stylesheets.
 import '@fontsource/ibm-plex-sans/latin-400.css';
 import '@fontsource/ibm-plex-sans/latin-500.css';
 import '@fontsource/ibm-plex-sans/latin-600.css';

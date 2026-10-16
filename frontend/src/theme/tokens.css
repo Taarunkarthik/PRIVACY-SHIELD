@@ -1,74 +1,77 @@
 /*
- * PrivacyShield design tokens.
+ * PrivacyShield design tokens — paper & ink.
  *
- * One dark petrol ground, derived from the product's teal. Two accents carry
- * meaning:
- *   amber = exposed, sensitive, needs attention (and nothing else)
- *   mint  = masked, protected, done
- * Mint is also the brand colour: the logo, links and the current-view marker.
- * Red is reserved for refusals and failures, blue for work in progress.
+ * One warm paper ground, sumi-ink text, hairline rules, and one accent used
+ * sparingly. Meaning is carried by four colours only:
+ *   ochre/amber  = exposed, sensitive, needs attention
+ *   green        = masked, protected, kept (also the brand/accent)
+ *   red          = refusals, failures, and the approval seal
+ *   indigo       = work in progress, information
  *
- * Contrast on --panel over --ground, which renders as #11373d (WCAG):
- * --text 11.7:1, --text-2 8.2:1, --text-3 5.6:1 (4.9:1 on a --raised row),
- * --amber 7.6:1, --mint 8.6:1, --danger 6.9:1, --info 7.5:1.
+ * Contrast is checked against --paper (#f7f4ec), WCAG AA for body text:
+ * --text 14.8:1, --text-2 8.1:1, --text-3 4.9:1, --accent 6.2:1,
+ * --amber 5.6:1, --danger 5.9:1, --info 7.4:1.
  */
 :root {
-  color-scheme: dark;
+  color-scheme: light;
 
   /* Ground and surfaces */
-  --ground: #0b2d34;
-  --ground-deep: #08242a;
-  --panel: rgb(18 57 63 / .86);        /* lets the data field show through, faintly */
-  --panel-solid: #12393f;              /* dialogs and the sign-in form */
-  --raised: rgb(255 255 255 / .045);   /* rows and cards that sit on a panel */
-  --raised-hover: rgb(255 255 255 / .08);
-  --selected: rgb(255 255 255 / .11);
-  --tint: rgb(255 255 255 / .07);      /* icon chips, count badges */
-  --track: rgb(255 255 255 / .13);     /* empty part of a progress bar */
-  --field: #0a272d;                    /* inputs are wells, darker than their panel */
-  --line: rgb(168 214 212 / .16);
-  --line-strong: rgb(168 214 212 / .32);
+  --ground: #f2eee4;                   /* washi paper */
+  --ground-deep: #eae4d6;
+  --paper: #f7f4ec;                    /* cards, panels, dialogs */
+  --panel: #f7f4ec;
+  --panel-solid: #f7f4ec;
+  --raised: #fbf9f3;                   /* rows and cards that sit on a panel */
+  --raised-hover: #f1ece0;
+  --selected: #ece6d8;
+  --tint: #efe9db;                     /* icon chips, count badges */
+  --track: #e2dcca;                    /* empty part of a progress bar */
+  --field: #fbf9f3;                    /* inputs */
+  --line: rgb(29 27 24 / .14);
+  --line-strong: rgb(29 27 24 / .30);
+  --grid-line: rgb(29 27 24 / .035);   /* the faint manuscript grid */
 
   /* Text */
-  --text: #eef6f3;
-  --text-2: #bcd3d2;
-  --text-3: #93b0b1;
-  --ink: #082329;                      /* text on a light or accent fill */
+  --text: #1d1b18;                     /* sumi ink */
+  --text-2: #4b463d;
+  --text-3: #857c6e;
+  --ink: #f7f4ec;                      /* text on a dark or accent fill */
 
   /* Meaning */
-  --amber: #f7bd55;
-  --amber-soft: rgb(247 189 85 / .14);
-  --amber-line: rgb(247 189 85 / .4);
-  --mint: #74e8c2;
-  --mint-soft: rgb(116 232 194 / .13);
-  --mint-line: rgb(116 232 194 / .38);
-  --danger: #ffa799;
-  --danger-soft: rgb(255 140 122 / .15);
-  --danger-line: rgb(255 140 122 / .42);
-  --info: #93cdf2;
-  --info-soft: rgb(147 205 242 / .13);
-  --info-line: rgb(147 205 242 / .38);
+  --amber: #956517;
+  --amber-soft: rgb(149 101 23 / .13);
+  --amber-line: rgb(149 101 23 / .34);
+  --mint: #35705a;                     /* protected / brand */
+  --mint-soft: rgb(53 112 90 / .12);
+  --mint-line: rgb(53 112 90 / .34);
+  --danger: #b23a2e;
+  --danger-soft: rgb(178 58 46 / .12);
+  --danger-line: rgb(178 58 46 / .34);
+  --info: #33456e;
+  --info-soft: rgb(51 69 110 / .12);
+  --info-line: rgb(51 69 110 / .32);
   --accent: var(--mint);
   --accent-line: var(--mint-line);
-  --focus: #c4f7e4;
+  --focus: #2c5f4c;
+  --seal: #b23a2e;                     /* the approval/verification stamp */
 
   /*
-   * Chart marks. Deeper steps of the two accents, inside the dark-surface
-   * lightness band, checked with the dataviz palette validator against
-   * #11373d (the panel as rendered): CVD separation 11.2, normal vision 17.7,
-   * both at least 3:1 on the surface. Mirrored in src/theme/chart.ts.
+   * Chart marks. Deeper steps of the two meanings, checked against the paper
+   * surface: CVD separation and normal-vision contrast both above 3:1.
+   * Mirrored in src/theme/chart.ts.
    */
-  --mark-exposed: #bd8526;
-  --mark-masked: #2ea686;
+  --mark-exposed: #b07d2a;
+  --mark-masked: #3f7a5e;
 
   /* Type */
-  --font-display: "Bricolage Grotesque Variable", "IBM Plex Sans", "Segoe UI", sans-serif;
-  --font-body: "IBM Plex Sans", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-display: "Shippori Mincho", "Iowan Old Style", Georgia, serif;
+  --font-body: "Zen Kaku Gothic New", "IBM Plex Sans", system-ui, "Segoe UI", sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
 
   /* Shape */
-  --radius-s: 6px;
-  --radius-m: 10px;
-  --radius-l: 14px;
-  --shadow-float: 0 24px 60px rgb(2 20 24 / .55);
+  --radius-s: 3px;
+  --radius-m: 4px;
+  --radius-l: 6px;
+  --shadow-float: 0 24px 60px rgb(60 50 35 / .20);
+  --shadow-soft: 0 10px 30px rgb(60 50 35 / .07);
 }

@@ -4,6 +4,19 @@
  * deployed policy masks; values and labels stay in text colours.
  */
 .page-content.dashboard { padding-bottom: 20px; }
+
+/*
+ * Role line and capability strip for the overview. The role line names the
+ * signed-in role under the heading; the strip lists what that role may and may
+ * not do, one hairline-separated item per line of text.
+ */
+.role-line { margin-top: 4px; font-size: 13px; color: var(--text-3); }
+.cap-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 0; margin: 4px 0 16px; padding: 10px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.cap-item { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--text-2); }
+.cap-item + .cap-item { margin-left: 18px; padding-left: 18px; border-left: 1px solid var(--line); }
+.cap-item .yes { color: var(--mint); font-weight: 600; }
+.cap-item .no { color: var(--text-3); font-weight: 600; }
+
 .stats-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 14px; }
 .stat-card { padding: 13px 18px 12px; }
 .stat-top { display: flex; align-items: center; gap: 10px; }
