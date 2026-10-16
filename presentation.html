@@ -1,0 +1,982 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PrivacyShield · DBMS Presentation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    color-scheme: dark;
+    --ground: #0b2d34;
+    --ground-deep: #08242a;
+    --panel: #12393f;
+    --raised: rgb(255 255 255 / .045);
+    --line: rgb(168 214 212 / .16);
+    --line-strong: rgb(168 214 212 / .32);
+    --text: #eef6f3;
+    --text-2: #bcd3d2;
+    --text-3: #93b0b1;
+    --ink: #082329;
+    --amber: #f7bd55;
+    --amber-soft: rgb(247 189 85 / .13);
+    --mint: #74e8c2;
+    --mint-soft: rgb(116 232 194 / .13);
+    --danger: #ffa799;
+    --danger-soft: rgb(255 140 122 / .14);
+    --info: #93cdf2;
+    --info-soft: rgb(147 205 242 / .13);
+    --font-display: "Bricolage Grotesque", "IBM Plex Sans", "Segoe UI", sans-serif;
+    --font-body: "IBM Plex Sans", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
+    --radius: 14px;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--ground-deep);
+    color: var(--text);
+    font-family: var(--font-body);
+    font-size: 16px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---- Background field (echoes the product's masked-data ground) ---- */
+  .bg { position: fixed; inset: 0; z-index: -1; pointer-events: none;
+    background:
+      radial-gradient(1200px 620px at 12% -12%, rgb(116 232 194 / .10), transparent 60%),
+      radial-gradient(900px 520px at 92% 6%, rgb(247 189 85 / .06), transparent 60%),
+      radial-gradient(900px 900px at 50% 118%, rgb(116 232 194 / .06), transparent 62%),
+      linear-gradient(180deg, var(--ground) 0%, var(--ground-deep) 100%);
+  }
+  .bg::after { content: ""; position: absolute; inset: 0; opacity: .5;
+    background-image:
+      repeating-linear-gradient(0deg, rgb(168 214 212 / .035) 0 1px, transparent 1px 36px),
+      repeating-linear-gradient(90deg, rgb(168 214 212 / .035) 0 1px, transparent 1px 36px);
+  }
+
+  /* ---- Chrome ---- */
+  .progress { position: fixed; top: 0; left: 0; height: 3px; width: 0; background: var(--mint);
+    z-index: 50; transition: width .25s ease; box-shadow: 0 0 14px rgb(116 232 194 / .6); }
+  .hud { position: fixed; right: 22px; bottom: 20px; z-index: 50; display: flex; align-items: center; gap: 12px; }
+  .hud .count { font-family: var(--font-mono); font-size: 12px; letter-spacing: .08em; color: var(--text-3);
+    background: rgb(8 36 42 / .8); border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; backdrop-filter: blur(8px); }
+  .hud button { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--line-strong);
+    background: rgb(8 36 42 / .82); color: var(--text); font-size: 16px; cursor: pointer; backdrop-filter: blur(8px);
+    transition: border-color .18s, color .18s, transform .18s; }
+  .hud button:hover { border-color: var(--mint); color: var(--mint); transform: translateY(-1px); }
+  .hud button:focus-visible { outline: 2px solid var(--mint); outline-offset: 2px; }
+  .hint { position: fixed; left: 22px; bottom: 24px; z-index: 50; font-family: var(--font-mono);
+    font-size: 11.5px; letter-spacing: .05em; color: var(--text-3); background: rgb(8 36 42 / .72);
+    border: 1px solid var(--line); border-radius: 999px; padding: 6px 13px; backdrop-filter: blur(8px); }
+  .hint b { color: var(--mint); font-weight: 600; }
+
+  /* ---- Slides ---- */
+  .slide { position: relative; min-height: 100vh; scroll-snap-align: start;
+    padding: clamp(34px, 4.4vw, 74px) clamp(30px, 5vw, 96px);
+    display: flex; flex-direction: column; justify-content: center; gap: clamp(14px, 1.7vw, 26px);
+    border-bottom: 1px solid var(--line); }
+  .slide > * { max-width: 1500px; width: 100%; margin-inline: auto; }
+
+  .eyebrow { font-family: var(--font-mono); font-size: clamp(11px, .82vw, 13px); text-transform: uppercase;
+    letter-spacing: .22em; color: var(--mint); margin: 0; display: flex; align-items: center; gap: 10px; }
+  .eyebrow::before { content: ""; width: 26px; height: 1px; background: var(--mint); opacity: .7; }
+
+  h1 { font-family: var(--font-display); font-weight: 700; line-height: 1.02; letter-spacing: -0.02em;
+    font-size: clamp(2.7rem, 6.4vw, 5.6rem); margin: .18em 0 0; }
+  h2 { font-family: var(--font-display); font-weight: 650; line-height: 1.08; letter-spacing: -0.015em;
+    font-size: clamp(1.7rem, 3.3vw, 2.9rem); margin: 0; }
+  h3 { font-family: var(--font-display); font-weight: 600; font-size: clamp(1rem, 1.25vw, 1.22rem); margin: 0 0 .35em; color: var(--mint); }
+  p { margin: 0 0 .7em; }
+  p:last-child { margin-bottom: 0; }
+  .lede { color: var(--text-2); font-size: clamp(1rem, 1.35vw, 1.3rem); max-width: 74ch; }
+  .muted { color: var(--text-3); }
+  code, kbd { font-family: var(--font-mono); }
+  strong { color: var(--text); font-weight: 600; }
+  .accent { color: var(--mint); }
+  .amber { color: var(--amber); }
+
+  /* ---- Cards & grids ---- */
+  .grid { display: grid; gap: clamp(12px, 1.2vw, 20px); }
+  .g2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .g3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .g4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  @media (max-width: 1100px) { .g3, .g4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+
+  .card { background: linear-gradient(180deg, rgb(18 57 63 / .92), rgb(12 44 50 / .92));
+    border: 1px solid var(--line); border-radius: var(--radius); padding: clamp(14px, 1.4vw, 22px); }
+  .card p { color: var(--text-2); font-size: clamp(.9rem, 1.02vw, 1.02rem); }
+  .card .num { font-family: var(--font-mono); font-size: 12px; color: var(--mint); letter-spacing: .14em; }
+
+  .stat { background: var(--raised); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; }
+  .stat .v { font-family: var(--font-display); font-weight: 700; font-size: clamp(1.6rem, 2.4vw, 2.2rem); line-height: 1; }
+  .stat .k { font-family: var(--font-mono); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--text-3); margin-top: 8px; }
+  .stat.sm { padding: 11px 14px; }
+  .stat.sm .v { font-size: clamp(1.15rem, 1.5vw, 1.5rem); }
+  .stat.sm .k { font-size: 10px; margin-top: 5px; letter-spacing: .1em; }
+
+  .chip { display: inline-block; font-family: var(--font-mono); font-size: clamp(10.5px, .8vw, 12.5px);
+    letter-spacing: .04em; border: 1px solid var(--line-strong); border-radius: 999px; padding: 5px 12px;
+    color: var(--text-2); background: var(--raised); }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .tick { color: var(--mint); }
+  .cross { color: var(--danger); }
+
+  /* ---- Code ---- */
+  pre { margin: 0; }
+  .code { font-family: var(--font-mono); font-size: clamp(.66rem, .9vw, .86rem); line-height: 1.52;
+    background: #061f25; border: 1px solid var(--line); border-left: 3px solid var(--mint);
+    border-radius: 12px; padding: clamp(14px, 1.3vw, 20px) clamp(16px, 1.5vw, 24px); overflow: auto;
+    color: #cfe6e2; white-space: pre; tab-size: 2; }
+  .code .k { color: var(--mint); }
+  .code .s { color: var(--amber); }
+  .code .c { color: #6f9a99; font-style: italic; }
+  .code .n { color: var(--info); }
+  .term { background: #041a1f; border-left-color: var(--info); }
+  .term .p { color: var(--mint); }
+  .term .e { color: var(--danger); }
+
+  /* ---- Tables ---- */
+  table.data { width: 100%; border-collapse: collapse; font-size: clamp(.82rem, .95vw, .96rem); }
+  table.data th { text-align: left; font-family: var(--font-mono); font-size: .74em; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--text-3); font-weight: 500; padding: 9px 12px; border-bottom: 1px solid var(--line-strong); }
+  table.data td { padding: 9px 12px; border-bottom: 1px solid var(--line); color: var(--text-2); vertical-align: top; }
+  table.data tr:last-child td { border-bottom: 0; }
+  table.data td.mono, table.data th.mono { font-family: var(--font-mono); font-size: .92em; }
+  table.data td.name { color: var(--text); font-family: var(--font-mono); white-space: nowrap; }
+  .tablewrap { background: rgb(8 36 42 / .5); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+
+  /* ---- Screenshots ---- */
+  figure.shot { margin: 0; border: 1px solid var(--line-strong); border-radius: 12px; overflow: hidden; background: #061f25; }
+  figure.shot img { display: block; width: 100%; height: var(--shot, 28vh); object-fit: cover; object-position: top center; background: #061f25; }
+  figure.shot figcaption { font-family: var(--font-mono); font-size: 11px; letter-spacing: .06em; color: var(--text-3);
+    padding: 8px 12px; border-top: 1px solid var(--line); background: rgb(8 36 42 / .7); }
+  .slide[aria-label="What it does"] figure.shot img { height: 33vh; }
+  .slide[aria-label="Transactions and concurrency"] figure.shot img,
+  .slide[aria-label="Audit hash chain"] figure.shot img { height: 26vh; }
+  .slide[aria-label="Screenshots: discover"] figure.shot img,
+  .slide[aria-label="Screenshots: protect"] figure.shot img { height: 26vh; }
+  .slide[aria-label="Screenshots: manage"] figure.shot img { height: 29vh; }
+
+  .flow { display: flex; flex-wrap: wrap; gap: 10px; align-items: stretch; }
+  .flow .step { flex: 1 1 150px; background: var(--raised); border: 1px solid var(--line); border-radius: 12px;
+    padding: 13px 14px; position: relative; }
+  .flow .step .i { font-family: var(--font-mono); font-size: 11px; color: var(--mint); }
+  .flow .step .t { font-family: var(--font-display); font-weight: 600; margin-top: 3px; }
+  .flow .step .d { font-size: .82rem; color: var(--text-3); margin-top: 3px; }
+
+  .note { border: 1px solid var(--amber-line, rgb(247 189 85 / .4)); background: var(--amber-soft);
+    border-radius: 12px; padding: 14px 18px; color: #f6e2bd; font-size: clamp(.88rem, 1vw, 1rem); }
+  .note.mint { border-color: rgb(116 232 194 / .4); background: var(--mint-soft); color: #d4f6ea; }
+  .note b { color: var(--text); }
+
+  ul.clean { list-style: none; padding: 0; margin: 0; display: grid; gap: 9px; }
+  ul.clean li { position: relative; padding-left: 22px; color: var(--text-2); font-size: clamp(.9rem, 1.02vw, 1.03rem); }
+  ul.clean li::before { content: ""; position: absolute; left: 3px; top: .58em; width: 7px; height: 7px;
+    border-radius: 2px; background: var(--mint); transform: rotate(45deg); }
+  ul.clean li b { color: var(--text); }
+
+  .split { display: grid; grid-template-columns: 1.05fr .95fr; gap: clamp(16px, 2vw, 34px); align-items: center; }
+  @media (max-width: 1000px) { .split { grid-template-columns: 1fr; } }
+
+  .erwrap { background: rgb(6 31 37 / .6); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px; }
+  svg.er { width: 100%; height: auto; display: block; }
+  svg.er .box { fill: #12393f; stroke: rgb(168 214 212 / .3); }
+  svg.er .lbl { fill: #eef6f3; font-family: var(--font-mono); font-size: 12.5px; }
+  svg.er .sub { fill: #93b0b1; font-family: var(--font-mono); font-size: 9.5px; }
+  svg.er .edge { fill: none; stroke: rgb(116 232 194 / .5); stroke-width: 1.3; }
+  svg.er .edge.amber { stroke: rgb(247 189 85 / .6); }
+  svg.er .dot { fill: var(--mint); }
+
+  .rellegend { columns: 2; column-gap: 26px; font-family: var(--font-mono); font-size: clamp(10.5px, .82vw, 12.5px);
+    color: var(--text-2); }
+  .rellegend div { break-inside: avoid; padding: 2.5px 0; }
+  .rellegend span { color: var(--mint); }
+
+  /* ---- Title slide ---- */
+  .title { justify-content: center; }
+  .title .mark { display: flex; align-items: center; gap: 14px; }
+  .title .shield { width: 46px; height: 46px; }
+  .title .brand { font-family: var(--font-display); font-weight: 700; font-size: clamp(1.2rem, 1.5vw, 1.5rem); }
+  .title .sub { font-size: .95rem; color: var(--text-3); }
+  .title h1 span { color: var(--mint); }
+  .rule { height: 1px; background: linear-gradient(90deg, var(--mint), transparent); border: 0; margin: 6px 0; }
+
+  @media print {
+    @page { size: A4 landscape; margin: 0; }
+    .progress, .hud, .hint { display: none !important; }
+    html { scroll-behavior: auto; }
+    body { background: var(--ground-deep); }
+    .slide { min-height: 100vh; height: 100vh; page-break-after: always; break-after: page; border: 0; }
+    .slide:last-child { page-break-after: auto; }
+  }
+</style>
+</head>
+<body>
+<div class="bg" aria-hidden="true"></div>
+<div class="progress" id="progress" aria-hidden="true"></div>
+<div class="hint" aria-hidden="true"><b>←</b> <b>→</b> navigate · scroll · <b>Ctrl/⌘ P</b> export PDF</div>
+<div class="hud">
+  <span class="count" id="count">01 / 23</span>
+  <button id="prev" aria-label="Previous slide">‹</button>
+  <button id="next" aria-label="Next slide">›</button>
+</div>
+
+<main class="deck" id="deck">
+
+<!-- ============ 1. TITLE ============ -->
+<section class="slide title" aria-label="Title">
+  <div class="mark">
+    <svg class="shield" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M12 2.5 4.5 5.4v6.1c0 4.6 3.1 8.6 7.5 9.9 4.4-1.3 7.5-5.3 7.5-9.9V5.4L12 2.5Z" stroke="#74e8c2" stroke-width="1.5" stroke-linejoin="round"/>
+      <path d="M8.4 12.1l2.5 2.5 4.7-5" stroke="#74e8c2" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <div>
+      <div class="brand">PrivacyShield</div>
+      <div class="sub">PostgreSQL · FastAPI · React</div>
+    </div>
+  </div>
+  <p class="eyebrow" style="margin-top:26px">DBMS Course Project · PostgreSQL 16</p>
+  <h1>Personal data,<br><span>found and masked</span>.</h1>
+  <p class="lede">A privacy platform that discovers sensitive data, recommends protection, and deploys <strong>human-approved masking as security-barrier SQL views</strong> — without ever modifying the source data.</p>
+  <hr class="rule">
+  <div class="chips">
+    <span class="chip">ER modelling</span>
+    <span class="chip">Normalization</span>
+    <span class="chip">Integrity constraints</span>
+    <span class="chip">Composite foreign keys</span>
+    <span class="chip">Indexing</span>
+    <span class="chip">Views</span>
+    <span class="chip">DCL / least privilege</span>
+    <span class="chip">Transactions</span>
+    <span class="chip">Idempotency</span>
+    <span class="chip">JSONB</span>
+    <span class="chip">Schema versioning</span>
+    <span class="chip">Tamper evidence</span>
+  </div>
+  <p class="muted" style="font-family:var(--font-mono);font-size:13px;margin-top:10px">Taarun · B.Tech Computer Science Engineering · Amrita Bangalore</p>
+</section>
+
+<!-- ============ 2. PROBLEM ============ -->
+<section class="slide" aria-label="The problem">
+  <p class="eyebrow">The problem</p>
+  <h2>Personal data lives in ordinary tables — and people need to query them.</h2>
+  <div class="split">
+    <div>
+      <ul class="clean">
+        <li>Organisations keep <b>emails, phones, PAN and Aadhaar numbers, cards and account numbers</b> as plain columns.</li>
+        <li>Analysts, support staff and developers need the data to do their jobs — but not the raw values.</li>
+        <li>Copying the data into a "safe" database creates <b>a second copy to protect</b> and a synchronisation problem.</li>
+        <li>Hiding columns only in the application still leaves the table <b>readable by anyone the database authorises</b>.</li>
+      </ul>
+      <div class="note" style="margin-top:18px">The database will hand over exactly what it is asked for, to anyone it authorises. So <b>the authorisation and the masking have to live inside the database</b>.</div>
+    </div>
+    <div class="tablewrap">
+      <table class="data">
+        <thead><tr><th>full_name</th><th>email</th><th>pan</th><th class="mono">aadhaar</th></tr></thead>
+        <tbody>
+          <tr><td class="name">Synthetic Customer 1</td><td class="mono">customer1@example.com</td><td class="mono">ABCDE0001F</td><td class="mono">2345 6789 0001</td></tr>
+          <tr><td class="name">Synthetic Customer 2</td><td class="mono">customer2@example.com</td><td class="mono">ABCDE0002F</td><td class="mono">2345 6789 0002</td></tr>
+          <tr><td class="name">Synthetic Customer 3</td><td class="mono">customer3@example.com</td><td class="mono">ABCDE0003F</td><td class="mono">2345 6789 0003</td></tr>
+        </tbody>
+      </table>
+      <p class="muted" style="padding:10px 12px;border-top:1px solid var(--line);font-size:12px;font-family:var(--font-mono)">enterprise.customers — the source table, unchanged. Read as <span class="amber">ps_scanner</span>.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 3. WHY A DBMS ============ -->
+<section class="slide" aria-label="Why a DBMS">
+  <p class="eyebrow">The core question · why a DBMS</p>
+  <h2>An application can be bypassed. The database is the last line of defence.</h2>
+  <div class="grid g3">
+    <div class="card"><span class="num">01</span><h3>Integrity is enforced, not hoped for</h3><p>Primary keys, foreign keys, <code>UNIQUE</code> and <code>CHECK</code> constraints mean a bug cannot write a bad row. The rule holds for every client, not just our code.</p></div>
+    <div class="card"><span class="num">02</span><h3>One source of truth</h3><p>Job state, policies and audit records are durable rows in PostgreSQL — not process memory. A restart or a crash resumes the same state.</p></div>
+    <div class="card"><span class="num">03</span><h3>ACID transactions</h3><p>An approval, its audit event and the status change commit together. There is no window where the system is half-updated.</p></div>
+    <div class="card"><span class="num">04</span><h3>Concurrency control</h3><p>Row locks, transaction-level advisory locks and unique idempotency keys make two administrators racing on the same policy safe.</p></div>
+    <div class="card"><span class="num">05</span><h3>Authorisation in the database</h3><p>Six purpose-built roles with least privilege. The <em>server</em> refuses a read — not merely a hidden button in the UI.</p></div>
+    <div class="card"><span class="num">06</span><h3>Protection that cannot be routed around</h3><p>Masking is a <code>security_barrier</code> view. The guarantee survives <code>psql</code>, a new client, or a bug in our own API.</p></div>
+  </div>
+  <div class="note mint"><b>Why not application-only?</b> Checks in application code protect exactly one code path. Constraints, role grants and views protect the data itself — which is the only thing that matters when data is the asset.</div>
+</section>
+
+<!-- ============ 4. WHAT IT DOES ============ -->
+<section class="slide" aria-label="What it does">
+  <p class="eyebrow">The workflow · seven steps</p>
+  <h2>Discover → recommend → approve → deploy → audit.</h2>
+  <div class="flow">
+    <div class="step"><div class="i">01</div><div class="t">Connect</div><div class="d">Register a PostgreSQL database. Credentials encrypted; password inputs write-only.</div></div>
+    <div class="step"><div class="i">02</div><div class="t">Discover</div><div class="d">Read the catalog into an immutable, fingerprinted schema snapshot.</div></div>
+    <div class="step"><div class="i">03</div><div class="t">Scan</div><div class="d">An async job reads a bounded, read-only sample and finds PII candidates.</div></div>
+    <div class="step"><div class="i">04</div><div class="t">Recommend</div><div class="d">A local model proposes category, risk and action. Advisory only — never raw rows, never SQL.</div></div>
+    <div class="step"><div class="i">05</div><div class="t">Approve</div><div class="d">A person builds a versioned policy. Once submitted it is immutable.</div></div>
+    <div class="step"><div class="i">06</div><div class="t">Deploy</div><div class="d">A separate action compiles the policy to predefined SQL and creates a security-barrier view.</div></div>
+    <div class="step"><div class="i">07</div><div class="t">Audit</div><div class="d">Every significant action is sealed into an append-only, hash-chained trail.</div></div>
+  </div>
+  <figure class="shot" style="max-width:1180px"><img src="presentation-assets/02-overview.png" alt="PrivacyShield workspace overview"><figcaption>Workspace overview — 1 connected database, 4 discovered tables, 9 sensitive columns, 3 deployed policies, 7 of 9 masked.</figcaption></figure>
+</section>
+
+<!-- ============ 5. TWO DATABASES ============ -->
+<section class="slide" aria-label="Two databases">
+  <p class="eyebrow">Architecture · two databases</p>
+  <h2>Normalized metadata and customer data never share a database.</h2>
+  <div class="grid g2">
+    <div class="card">
+      <h3>Control plane</h3>
+      <p>Normalized metadata and sanitized evidence. Users, connections, snapshots, jobs, classifications, policies and the audit chain. <strong>It is never a copy of the customer database</strong> and holds no raw PII.</p>
+      <div class="chips" style="margin-top:10px"><span class="chip">17 tables</span><span class="chip">UUID keys</span><span class="chip">Alembic migrations</span></div>
+    </div>
+    <div class="card">
+      <h3>Target</h3>
+      <p>The database being protected. The application only ever reads it under <code>ps_scanner</code> and writes privacy infrastructure under <code>ps_deployer</code>. The bundled target is <strong>synthetic</strong>.</p>
+      <div class="chips" style="margin-top:10px"><span class="chip">enterprise_demo</span><span class="chip">security-barrier views</span><span class="chip">ps_reader</span></div>
+    </div>
+  </div>
+  <div class="grid g4">
+    <div class="stat"><div class="v">2</div><div class="k">PostgreSQL databases</div></div>
+    <div class="stat"><div class="v">6</div><div class="k">Purpose-built roles</div></div>
+    <div class="stat"><div class="v">0</div><div class="k">Raw PII in the control plane</div></div>
+    <div class="stat"><div class="v"><span class="cross">✗</span></div><div class="k">CONNECT for PUBLIC</div></div>
+  </div>
+  <div class="note">The two databases cannot share one atomic transaction — so the design uses <b>idempotent deployment and a target-side receipt</b> to reconcile after an uncertain outcome. A network error is never treated as proof of rollback.</div>
+</section>
+
+<!-- ============ 6. ER DIAGRAM ============ -->
+<section class="slide" aria-label="ER diagram">
+  <p class="eyebrow">Schema · entity relationships</p>
+  <h2>20 relationships across 15 control-plane tables.</h2>
+  <div class="split" style="grid-template-columns:1.3fr .92fr;align-items:start;gap:clamp(16px,1.6vw,28px)">
+  <div class="erwrap">
+    <svg class="er" viewBox="0 0 1180 700" role="img" aria-label="Control-plane entity relationship diagram">
+      <rect class="box" x="20"  y="40"  width="190" height="44" rx="10"/><text class="lbl" x="115" y="60" text-anchor="middle">users</text><text class="sub" x="115" y="74" text-anchor="middle">identity · role</text>
+      <rect class="box" x="20"  y="120" width="190" height="44" rx="10"/><text class="lbl" x="115" y="140" text-anchor="middle">user_sessions</text><text class="sub" x="115" y="154" text-anchor="middle">hashed token</text>
+      <rect class="box" x="20"  y="560" width="190" height="44" rx="10"/><text class="lbl" x="115" y="580" text-anchor="middle">policy_approvals</text><text class="sub" x="115" y="594" text-anchor="middle">decision · user</text>
+
+      <rect class="box" x="250" y="40"  width="190" height="44" rx="10"/><text class="lbl" x="345" y="60" text-anchor="middle">database_connections</text><text class="sub" x="345" y="74" text-anchor="middle">unique name · secrets</text>
+      <rect class="box" x="250" y="430" width="190" height="44" rx="10"/><text class="lbl" x="345" y="450" text-anchor="middle">masking_policies</text><text class="sub" x="345" y="464" text-anchor="middle">version · state</text>
+
+      <rect class="box" x="480" y="40"  width="190" height="44" rx="10"/><text class="lbl" x="575" y="60" text-anchor="middle">schema_snapshots</text><text class="sub" x="575" y="74" text-anchor="middle">immutable catalog</text>
+      <rect class="box" x="480" y="430" width="190" height="44" rx="10"/><text class="lbl" x="575" y="450" text-anchor="middle">policy_rules</text><text class="sub" x="575" y="464" text-anchor="middle">column × audience</text>
+      <rect class="box" x="480" y="530" width="190" height="44" rx="10"/><text class="lbl" x="575" y="550" text-anchor="middle">policy_deployments</text><text class="sub" x="575" y="564" text-anchor="middle">idempotency key</text>
+
+      <rect class="box" x="710" y="40"  width="190" height="44" rx="10"/><text class="lbl" x="805" y="60" text-anchor="middle">scan_jobs</text><text class="sub" x="805" y="74" text-anchor="middle">state · progress</text>
+      <rect class="box" x="710" y="180" width="190" height="44" rx="10"/><text class="lbl" x="805" y="200" text-anchor="middle">classification_jobs</text><text class="sub" x="805" y="214" text-anchor="middle">model · prompt ver.</text>
+      <rect class="box" x="710" y="600" width="190" height="44" rx="10"/><text class="lbl" x="805" y="620" text-anchor="middle">audit_events</text><text class="sub" x="805" y="634" text-anchor="middle">actor · subject</text>
+
+      <rect class="box" x="940" y="40"  width="190" height="44" rx="10"/><text class="lbl" x="1035" y="60" text-anchor="middle">scan_results</text><text class="sub" x="1035" y="74" text-anchor="middle">bounded evidence</text>
+      <rect class="box" x="940" y="180" width="190" height="44" rx="10"/><text class="lbl" x="1035" y="200" text-anchor="middle">classification_job_items</text><text class="sub" x="1035" y="214" text-anchor="middle">same-scan FKs</text>
+      <rect class="box" x="940" y="300" width="190" height="44" rx="10"/><text class="lbl" x="1035" y="320" text-anchor="middle">pii_classifications</text><text class="sub" x="1035" y="334" text-anchor="middle">category · risk</text>
+      <rect class="box" x="940" y="600" width="190" height="44" rx="10"/><text class="lbl" x="1035" y="620" text-anchor="middle">audit_chain</text><text class="sub" x="1035" y="634" text-anchor="middle">insert-only hash</text>
+
+      <path class="edge" d="M115,84 L115,120"/>
+      <path class="edge" d="M210,62 L250,62"/>
+      <path class="edge" d="M20,62 L8,62 L8,582 L20,582"/>
+      <path class="edge" d="M115,40 L115,14 L805,14 L805,40"/>
+      <path class="edge" d="M440,62 L480,62"/>
+      <path class="edge" d="M345,84 L345,108 L805,108 L805,84"/>
+      <path class="edge" d="M345,84 L345,430"/>
+      <path class="edge amber" d="M670,62 L710,62"/>
+      <path class="edge" d="M900,62 L940,62"/>
+      <path class="edge" d="M805,84 L805,180"/>
+      <path class="edge" d="M1035,84 L1035,180"/>
+      <path class="edge" d="M900,202 L940,202"/>
+      <path class="edge" d="M1035,224 L1035,300"/>
+      <path class="edge" d="M1130,50 L1160,50 L1160,322 L1130,322"/>
+      <path class="edge" d="M440,452 L480,452"/>
+      <path class="edge" d="M940,322 L905,322 L905,452 L670,452"/>
+      <path class="edge" d="M440,470 L480,552"/>
+      <path class="edge" d="M250,470 L228,470 L228,582 L210,582"/>
+      <path class="edge" d="M210,74 L225,74 L225,672 L805,672 L805,644"/>
+      <path class="edge" d="M900,622 L940,622"/>
+
+      <circle class="dot" cx="115" cy="84" r="2.6"/><circle class="dot" cx="210" cy="62" r="2.6"/>
+      <circle class="dot" cx="115" cy="40" r="2.6"/><circle class="dot" cx="440" cy="62" r="2.6"/>
+      <circle class="dot" cx="345" cy="84" r="2.6"/><circle class="dot" cx="670" cy="62" r="2.6"/>
+      <circle class="dot" cx="900" cy="62" r="2.6"/><circle class="dot" cx="805" cy="84" r="2.6"/>
+      <circle class="dot" cx="1035" cy="84" r="2.6"/><circle class="dot" cx="900" cy="202" r="2.6"/>
+      <circle class="dot" cx="1130" cy="50" r="2.6"/><circle class="dot" cx="440" cy="452" r="2.6"/>
+      <circle class="dot" cx="940" cy="322" r="2.6"/><circle class="dot" cx="440" cy="470" r="2.6"/>
+      <circle class="dot" cx="250" cy="470" r="2.6"/><circle class="dot" cx="210" cy="74" r="2.6"/>
+      <circle class="dot" cx="900" cy="622" r="2.6"/>
+
+      <text class="sub" x="690" y="58" text-anchor="middle" fill="#f7bd55">composite FK</text>
+      <text class="sub" x="118" y="26" text-anchor="middle">requested_by</text>
+    </svg>
+  </div>
+  <div>
+    <div class="grid g2">
+      <div class="stat sm"><div class="v">15</div><div class="k">Tables</div></div>
+      <div class="stat sm"><div class="v">20</div><div class="k">Relationships</div></div>
+      <div class="stat sm"><div class="v">3NF</div><div class="k">Referenced, not repeated</div></div>
+      <div class="stat sm"><div class="v">UUID</div><div class="k">Stable primary keys</div></div>
+    </div>
+    <div class="rellegend" style="columns:1;margin-top:18px">
+    <div>users <span>→</span> user_sessions</div>
+    <div>users <span>→</span> database_connections</div>
+    <div>users <span>→</span> scan_jobs</div>
+    <div>users <span>→</span> classification_jobs</div>
+    <div>users <span>→</span> policy_approvals</div>
+    <div>database_connections <span>→</span> schema_snapshots</div>
+    <div>database_connections <span>→</span> scan_jobs</div>
+    <div>database_connections <span>→</span> masking_policies</div>
+    <div>schema_snapshots <span>→</span> scan_jobs <em>(composite)</em></div>
+    <div>scan_jobs <span>→</span> scan_results</div>
+    <div>scan_jobs <span>→</span> classification_jobs</div>
+    <div>classification_jobs <span>→</span> classification_job_items</div>
+    <div>scan_results <span>→</span> classification_job_items</div>
+    <div>classification_job_items <span>→</span> pii_classifications</div>
+    <div>scan_results <span>→</span> pii_classifications</div>
+    <div>masking_policies <span>→</span> policy_rules</div>
+    <div>pii_classifications <span>→</span> policy_rules</div>
+    <div>masking_policies <span>→</span> policy_approvals</div>
+    <div>masking_policies <span>→</span> policy_deployments</div>
+    <div>users <span>→</span> audit_events <span>→</span> audit_chain</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 7. CONSTRAINTS ============ -->
+<section class="slide" aria-label="Integrity constraints">
+  <p class="eyebrow">Concept · integrity constraints</p>
+  <h2>The rules live in the schema, not in the documentation.</h2>
+  <div class="split">
+    <div class="tablewrap">
+      <table class="data">
+        <thead><tr><th>Constraint</th><th>Where</th><th>What it prevents</th></tr></thead>
+        <tbody>
+          <tr><td class="name">PRIMARY KEY (UUID)</td><td>every table</td><td>Display names changing; identity drift</td></tr>
+          <tr><td class="name">FOREIGN KEY</td><td>20 relationships</td><td>Orphan rows, dangling references</td></tr>
+          <tr><td class="name">UNIQUE</td><td>email, connection name, session token, policy version, idempotency key</td><td>Duplicate emails, names, tokens, replays</td></tr>
+          <tr><td class="name">CHECK</td><td>roles, states, sample limits, counts, confidence, progress</td><td>Negative counts, over-range confidence</td></tr>
+          <tr><td class="name">Composite FK</td><td><code>scan_jobs</code>, <code>classification_job_items</code></td><td>Cross-connection or cross-scan references</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div>
+      <pre class="code"><span class="c">-- The same rule, expressed as data:</span>
+email          <span class="k">UNIQUE NOT NULL</span>     <span class="c">-- normalized (lower-case)</span>
+role           <span class="k">CHECK</span> (role <span class="k">IN</span> (<span class="s">'ADMIN'</span>, <span class="s">'ANALYST'</span>, <span class="s">'AUDITOR'</span>))
+sample_limit   <span class="k">CHECK</span> (sample_limit <span class="k">BETWEEN</span> 1 <span class="k">AND</span> 10000)
+matching_rows  <span class="k">CHECK</span> (matching_rows &gt;= 0)
+confidence     <span class="k">CHECK</span> (confidence <span class="k">BETWEEN</span> 0 <span class="k">AND</span> 1)
+session_tokens <span class="k">UNIQUE</span> (sha256)   <span class="c">-- plaintext never stored</span>
+policy version <span class="k">UNIQUE</span> (policy_id, version)</pre>
+      <div class="note mint" style="margin-top:16px">A constraint is a fact the database refuses to let any client contradict — including a future version of our own code.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 8. COMPOSITE FK ============ -->
+<section class="slide" aria-label="Composite foreign keys">
+  <p class="eyebrow">Concept · composite foreign keys</p>
+  <h2>A scan cannot use another connection's snapshot — even if both rows exist.</h2>
+  <div class="split">
+    <div>
+      <p class="lede">A snapshot is identified by <code>id</code>, but it is only meaningful inside the connection it was discovered from. Two single-column foreign keys would each be satisfied by a mismatched pair.</p>
+      <pre class="code" style="margin-top:6px"><span class="c">-- schema_snapshots gains a redundant-but-meaningful key</span>
+<span class="k">UNIQUE</span> (id, connection_id)
+
+<span class="c">-- scan_jobs then references the pair, not just the id</span>
+<span class="k">FOREIGN KEY</span> (snapshot_id, connection_id)
+  <span class="k">REFERENCES</span> schema_snapshots (id, connection_id)</pre>
+      <p style="margin-top:12px">The same technique ties <code>classification_job_items</code> to the scan they belong to, so an accepted AI recommendation must reference the exact selected pair.</p>
+    </div>
+    <div>
+      <pre class="code term"><span class="p"># verified against the running database</span>
+<span class="p">$</span> SELECT conname, pg_get_constraintdef(oid)
+    FROM pg_constraint
+   WHERE contype = <span class="s">'f'</span>
+     AND conrelid = <span class="s">'scan_jobs'</span>::regclass;
+
+ fk_scan_jobs_connection_id_database_connections
+   <span class="k">FOREIGN KEY</span> (connection_id) <span class="k">REFERENCES</span> database_connections(id)
+
+ fk_scan_jobs_requested_by_users
+   <span class="k">FOREIGN KEY</span> (requested_by) <span class="k">REFERENCES</span> users(id)
+
+ fk_scan_jobs_snapshot_id_schema_snapshots
+   <span class="k">FOREIGN KEY</span> (snapshot_id, connection_id)
+     <span class="k">REFERENCES</span> schema_snapshots(id, connection_id)</pre>
+      <div class="note">This is integrity the application cannot accidentally weaken: PostgreSQL rejects the row before it is ever written.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 9. NORMALIZATION ============ -->
+<section class="slide" aria-label="Normalization and JSONB">
+  <p class="eyebrow">Concept · normalization &amp; semi-structured data</p>
+  <h2>Relational where identity matters, JSONB only where shape varies.</h2>
+  <div class="grid g2">
+    <div class="card">
+      <h3>Normalized into separate facts</h3>
+      <ul class="clean">
+        <li>Users, connections, scans, classifications and policies have <b>independent lifecycles</b>.</li>
+        <li>A job's requester is a <b>foreign key</b>, not a repeated name or email.</li>
+        <li>Results reference jobs instead of duplicating endpoint credentials.</li>
+        <li>Rules and approval decisions are <b>separate rows tied to an exact policy version</b> — an edit creates a new version, never overwrites one.</li>
+        <li>History is retained: users and connections are <b>deactivated, not deleted</b>.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>JSONB — allowed only here</h3>
+      <ul class="clean">
+        <li>Immutable external <b>catalog snapshots</b> (the source schema's varying shape).</li>
+        <li>Bounded, <b>sanitized evidence</b> from a scan.</li>
+        <li><b>Event details</b> on the audit trail.</li>
+      </ul>
+      <p style="margin-top:12px" class="muted">Never a substitute for ownership, status, identity or approval columns. Plaintext credentials and raw PII are prohibited in every column — <strong>including inside JSONB</strong> and audit fields.</p>
+      <div class="chips" style="margin-top:12px"><span class="chip">avoids update anomalies</span><span class="chip">keeps varying shapes</span><span class="chip">bounded sizes</span></div>
+    </div>
+  </div>
+  <div class="grid g3">
+    <div class="stat"><div class="v">FK</div><div class="k">Requesters referenced, not repeated</div></div>
+    <div class="stat"><div class="v">versions</div><div class="k">Policies immutable once submitted</div></div>
+    <div class="stat"><div class="v">JSONB</div><div class="k">3 permitted uses, never for identity</div></div>
+  </div>
+</section>
+
+<!-- ============ 10. MASKING AS VIEWS ============ -->
+<section class="slide" aria-label="Masking as views">
+  <p class="eyebrow">Concept · views as the protection mechanism</p>
+  <h2>Deployment compiles a policy into one security-barrier view.</h2>
+  <p class="lede">Columns without a rule become a typed <code>NULL</code>, so the column list stays stable but nothing leaks. This is the real definition of the deployed view, read back from PostgreSQL.</p>
+  <pre class="code"><span class="k">CREATE OR REPLACE VIEW</span> privacyshield_masked.customers_20f808f337c9
+<span class="k">WITH</span> (security_barrier = <span class="k">true</span>) <span class="k">AS</span>
+<span class="k">SELECT</span>
+    <span class="k">NULL</span>::bigint <span class="k">AS</span> id,
+    encode(extensions.hmac(convert_to(full_name, <span class="s">'UTF8'</span>::name),
+        (<span class="k">SELECT</span> pseudonym_keys.key <span class="k">FROM</span> privacyshield_private.pseudonym_keys
+          <span class="k">WHERE</span> domain = <span class="s">'demo'</span> <span class="k">AND</span> key_version = 1), <span class="s">'sha256'</span>::text), <span class="s">'hex'</span>::text) <span class="k">AS</span> full_name,
+    encode(extensions.hmac(convert_to(email, <span class="s">'UTF8'</span>::name),
+        (<span class="k">SELECT</span> pseudonym_keys.key <span class="k">FROM</span> privacyshield_private.pseudonym_keys
+          <span class="k">WHERE</span> domain = <span class="s">'demo'</span> <span class="k">AND</span> key_version = 1), <span class="s">'sha256'</span>::text), <span class="s">'hex'</span>::text) <span class="k">AS</span> email,
+    <span class="k">NULL</span>::text <span class="k">AS</span> phone,
+    <span class="k">NULL</span>::text <span class="k">AS</span> pan,
+    <span class="k">NULL</span>::text <span class="k">AS</span> aadhaar,
+    <span class="k">CASE</span> <span class="k">WHEN</span> address <span class="k">IS NULL THEN NULL</span>::text
+         <span class="k">ELSE</span> <span class="s">'[REDACTED]'</span>::text <span class="k">END AS</span> address,
+    <span class="k">NULL</span>::jsonb <span class="k">AS</span> profile,
+    <span class="k">NULL</span>::timestamp <span class="k">WITH</span> time zone <span class="k">AS</span> created_at
+<span class="k">FROM</span> enterprise.customers;</pre>
+  <div class="grid g4">
+    <div class="stat"><div class="v">1</div><div class="k">Statement per deployment</div></div>
+    <div class="stat"><div class="v">security_barrier</div><div class="k">Verified via pg_class.reloptions</div></div>
+    <div class="stat"><div class="v">fail-closed</div><div class="k">Unexpected shape → fully <code>***</code></div></div>
+    <div class="stat"><div class="v">SHA-256</div><div class="k">Plan fingerprint re-checked at deploy</div></div>
+  </div>
+</section>
+
+<!-- ============ 11. ACTIONS & BEFORE/AFTER ============ -->
+<section class="slide" aria-label="Masking actions">
+  <p class="eyebrow">Concept · the eight protection actions</p>
+  <h2>Every rule compiles to predefined, injection-safe SQL.</h2>
+  <div class="split" style="align-items:start">
+    <div class="tablewrap">
+      <table class="data">
+        <thead><tr><th>Action</th><th>Compiled SQL</th><th>Result</th></tr></thead>
+        <tbody>
+          <tr><td class="name">KEEP</td><td class="mono">"col" AS "col"</td><td class="mono">pass-through</td></tr>
+          <tr><td class="name">REDACT</td><td class="mono">CASE WHEN col IS NULL THEN NULL ELSE '[REDACTED]' END</td><td class="mono">[REDACTED]</td></tr>
+          <tr><td class="name">PARTIAL</td><td class="mono">'***' || right(col::text, 4)</td><td class="mono">***1234</td></tr>
+          <tr><td class="name">MASK_EMAIL</td><td class="mono">first char + '***@' + host</td><td class="mono">c***@example.com</td></tr>
+          <tr><td class="name">MASK_PHONE</td><td class="mono">all digits but last four → *</td><td class="mono">+** ***** *0001</td></tr>
+          <tr><td class="name">MASK_ID</td><td class="mono">letters/digits but last four → *</td><td class="mono">**** **** 0001</td></tr>
+          <tr><td class="name">PSEUDONYMIZE</td><td class="mono">encode(hmac(col, key, 'sha256'), 'hex')</td><td class="mono">deterministic token</td></tr>
+          <tr><td class="name">NULLIFY / RESTRICT</td><td class="mono">NULL::&lt;type&gt;</td><td class="mono">no value exposed</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div>
+      <div class="tablewrap" style="margin-bottom:14px">
+        <table class="data">
+          <thead><tr><th>Column</th><th>Source (<span class="amber">ps_scanner</span>)</th><th>View (<span class="accent">ps_reader</span>)</th></tr></thead>
+          <tbody>
+            <tr><td class="name">full_name</td><td class="mono amber">Synthetic Customer 1</td><td class="mono"><span class="tick">ab41a5ed4828fa3a…</span></td></tr>
+            <tr><td class="name">email</td><td class="mono amber">customer1@example.com</td><td class="mono"><span class="tick">e6957fdbf73d7fb9…</span></td></tr>
+            <tr><td class="name">phone</td><td class="mono amber">+91 90000 00001</td><td class="mono"><span class="tick">NULL</span></td></tr>
+            <tr><td class="name">pan</td><td class="mono amber">ABCDE0001F</td><td class="mono"><span class="tick">NULL</span></td></tr>
+            <tr><td class="name">aadhaar</td><td class="mono amber">2345 6789 0001</td><td class="mono"><span class="tick">NULL</span></td></tr>
+            <tr><td class="name">address</td><td class="mono amber">1 Example Street…</td><td class="mono"><span class="tick">[REDACTED]</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <ul class="clean">
+        <li><b>Pseudonyms are deterministic</b> and domain-keyed, so related columns still join.</li>
+        <li><b>Identifiers and types are validated</b> before interpolation — no string-concatenated user input.</li>
+        <li><b>Preview runs the real expressions</b> over invented examples: no source row is read.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 12. DCL ============ -->
+<section class="slide" aria-label="Access control">
+  <p class="eyebrow">Concept · access control (DCL)</p>
+  <h2>Six roles. Each one can do the least it needs to.</h2>
+  <div class="split" style="align-items:start">
+    <div class="tablewrap">
+      <table class="data">
+        <thead><tr><th>Database</th><th>Role</th><th>Responsibility</th></tr></thead>
+        <tbody>
+          <tr><td>Control</td><td class="name">ps_migrator</td><td>Schema ownership and migration DDL</td></tr>
+          <tr><td>Control</td><td class="name">ps_app</td><td>Runtime CRUD as granted; <b>append-only</b> audit writes</td></tr>
+          <tr><td>Target</td><td class="name">ps_scanner</td><td>Read authorised tables; <b>no writes</b></td></tr>
+          <tr><td>Target</td><td class="name">ps_deployer</td><td>Restricted privacy-infrastructure deployment; <b>not a superuser</b></td></tr>
+          <tr><td>Target</td><td class="name">ps_view_owner</td><td><b>NOLOGIN</b> owner of masked views</td></tr>
+          <tr><td>Target</td><td class="name">ps_reader</td><td><code>SELECT</code> on approved views only; <b>no base-table access</b></td></tr>
+        </tbody>
+      </table>
+      <p class="muted" style="padding:10px 12px;border-top:1px solid var(--line);font-size:12px">Application roles are separate: <b>ADMIN</b> approves and deploys, <b>ANALYST</b> writes policies, <b>AUDITOR</b> is read-only. The server checks on every request.</p>
+    </div>
+    <div>
+      <pre class="code term"><span class="p"># the database itself refuses the read</span>
+<span class="p">$</span> psql -U ps_reader -d enterprise_demo \
+    -c <span class="s">"SELECT full_name FROM enterprise.customers LIMIT 1;"</span>
+<span class="e">ERROR:  permission denied for schema enterprise</span>
+
+<span class="c">-- and the view it *is* allowed to read</span>
+<span class="p">$</span> SELECT c.relname, c.reloptions,
+         pg_get_userbyid(c.relowner) AS view_owner
+    FROM pg_class c ...
+
+ customers_20f808f337c9 | {security_barrier=true} | ps_view_owner
+
+<span class="p">$</span> SELECT rolname, rolcanlogin, rolsuper
+    FROM pg_roles WHERE rolname LIKE <span class="s">'ps\_%'</span>;
+ ps_deployer   | t | f
+ ps_reader     | t | f
+ ps_scanner    | t | f
+ ps_view_owner | <span class="k">f</span> | f        <span class="c">-- NOLOGIN</span>
+
+<span class="p">$</span> has_schema_privilege(<span class="s">'ps_reader'</span>, <span class="s">'enterprise'</span>, <span class="s">'USAGE'</span>);
+ <span class="e">f</span>   <span class="c">-- no base-table path at all</span></pre>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 13. TRANSACTIONS ============ -->
+<section class="slide" aria-label="Transactions and concurrency">
+  <p class="eyebrow">Concept · transactions &amp; concurrency</p>
+  <h2>Every state change is one transaction, or it did not happen.</h2>
+  <div class="grid g2">
+    <div class="card"><h3>Job creation + audit commit together</h3><p>Queued delivery can be retried without creating duplicate business work. The durable row <em>is</em> the queue.</p></div>
+    <div class="card"><h3>Approval locks the policy row</h3><p>The decision, the status change and the audit event commit atomically. A concurrent decision on an already-transitioned version returns <code>409</code>.</p></div>
+    <div class="card"><h3>Deployment is idempotent</h3><p>A durable, unique idempotency key and at most one active attempt per policy. A target-side advisory lock serialises related changes.</p></div>
+    <div class="card"><h3>Target work is one transaction</h3><p>Source revalidation, view creation, grants and the receipt share a single target transaction — so a failure leaves no half-deployed view.</p></div>
+  </div>
+  <div class="split" style="align-items:center;margin-top:6px">
+    <div>
+      <pre class="code"><span class="c">-- lifecycle is a constrained state machine, not a free string</span>
+DRAFT <span class="k">→</span> PENDING_APPROVAL <span class="k">→</span> APPROVED <span class="k">→</span> DEPLOYED
+                        <span class="k">↘</span> REJECTED
+                           APPROVED <span class="k">→</span> FAILED <span class="c">(retry only, same fingerprint)</span></pre>
+      <div class="note mint" style="margin-top:12px">Because the version is <b>immutable</b> and carries a <b>plan fingerprint</b>, "retry" can never silently deploy changed content — changed content needs a fresh version and a fresh approval.</div>
+    </div>
+    <figure class="shot"><img src="presentation-assets/14-deployments.png" alt="Deployments page"><figcaption>Deployments — immutable versions, idempotency keys and execution state.</figcaption></figure>
+  </div>
+</section>
+
+<!-- ============ 14. IDEMPOTENCY / RECOVERY ============ -->
+<section class="slide" aria-label="Idempotency and recovery">
+  <p class="eyebrow">Concept · idempotency &amp; recovery</p>
+  <h2>Two databases cannot share one transaction. The design owns that.</h2>
+  <div class="split" style="align-items:start">
+    <div>
+      <ul class="clean">
+        <li><b>Lock the deployment</b>, recheck the schema and the privileges, then execute predefined SQL in a single target transaction.</li>
+        <li>Record an <b>idempotent receipt</b> in that same transaction.</li>
+        <li>After an uncertain outcome — a network error after commit — <b>read the target receipt and reconcile</b> control-plane state.</li>
+      </ul>
+      <div class="note" style="margin-top:16px">A network error is <b>not evidence of rollback</b>. The system never reports a committed deployment as failed, and never deploys twice for the same key.</div>
+      <div class="chips" style="margin-top:16px"><span class="chip">unique idempotency key</span><span class="chip">advisory lock</span><span class="chip">receipt</span><span class="chip">reconciliation</span></div>
+    </div>
+    <div class="tablewrap">
+      <table class="data">
+        <thead><tr><th>Uncertainty</th><th>How the design answers it</th></tr></thead>
+        <tbody>
+          <tr><td>Worker dies mid-job</td><td>The durable row is recovered as a new attempt; Postgres holds the state, Redis holds only identifiers.</td></tr>
+          <tr><td>Two admins decide at once</td><td>Row lock + state check → the second request gets <code>409</code>.</td></tr>
+          <tr><td>Deploy request retried</td><td>Unique idempotency key → the same attempt, not a second view.</td></tr>
+          <tr><td>Commit succeeds, reply lost</td><td>Read the target receipt; reconcile. Never misreported as rolled back.</td></tr>
+        </tbody>
+      </table>
+      <p class="muted" style="padding:10px 12px;border-top:1px solid var(--line);font-size:12px;font-family:var(--font-mono)">Recovery is a database property: durable rows, locks and keys — not an in-memory retry loop.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 15. AUDIT CHAIN ============ -->
+<section class="slide" aria-label="Audit hash chain">
+  <p class="eyebrow">Concept · tamper evidence</p>
+  <h2>An insert-only hash chain over the audit log.</h2>
+  <div class="split" style="align-items:start">
+    <div>
+      <pre class="code"><span class="k">CREATE TABLE</span> audit_chain (
+    chain_index bigint <span class="k">PRIMARY KEY</span> <span class="k">CHECK</span> (chain_index &gt;= 1),
+    event_id    uuid <span class="k">NOT NULL UNIQUE</span>      <span class="c">-- one seal per event</span>
+        <span class="k">REFERENCES</span> audit_events (id),
+    prev_hash   varchar(64) <span class="k">NOT NULL</span>
+        <span class="k">CHECK</span> (prev_hash ~ <span class="s">'^[0-9a-f]{64}$'</span>),
+    row_hash    varchar(64) <span class="k">NOT NULL</span>
+        <span class="k">CHECK</span> (row_hash  ~ <span class="s">'^[0-9a-f]{64}$'</span>),
+    sealed_at   timestamptz <span class="k">NOT NULL DEFAULT</span> now()
+);
+
+<span class="c">-- runtime grants deny UPDATE, DELETE and TRUNCATE</span>
+<span class="c">-- on audit_events; the chain is append-only</span></pre>
+      <div class="note mint" style="margin-top:14px">Each row hashes its event together with the <b>previous row's hash</b>. Removing or altering any entry breaks every link after it.</div>
+    </div>
+    <div>
+      <pre class="code term"><span class="c">-- verify: does every link match the previous hash?</span>
+<span class="k">WITH</span> ordered <span class="k">AS</span> (
+  <span class="k">SELECT</span> chain_index, prev_hash,
+         lag(row_hash) <span class="k">OVER</span> (<span class="k">ORDER BY</span> chain_index) <span class="k">AS</span> expected
+    <span class="k">FROM</span> audit_chain
+)
+<span class="k">SELECT</span> count(*) <span class="k">AS</span> broken_links <span class="k">FROM</span> ordered
+ <span class="k">WHERE</span> prev_hash &lt;&gt; repeat(<span class="s">'0'</span>, 64)
+   <span class="k">AND</span> prev_hash <span class="k">IS DISTINCT FROM</span> expected;
+
+ broken_links
+--------------
+            <span class="tick">0</span>      <span class="c">-- 85 sealed events, every link intact</span></pre>
+      <figure class="shot" style="margin-top:14px"><img src="presentation-assets/11-audit-integrity.png" alt="Audit log with integrity banner"><figcaption>Audit log — "Intact: every sealed event still matches the hash recorded when it was sealed."</figcaption></figure>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 16. INDEXING ============ -->
+<section class="slide" aria-label="Indexing">
+  <p class="eyebrow">Concept · indexing</p>
+  <h2>Indexes are chosen from the queries the system actually runs.</h2>
+  <div class="grid g3">
+    <div class="card"><h3>Foreign-key indexes</h3><p>Every FK is indexed so joins and cascading checks do not degrade into sequential scans as the audit and job tables grow.</p></div>
+    <div class="card"><h3>Job status &amp; time</h3><p>Polling and recovery scan for queued or stale jobs by state and timestamp — the hot path of the worker loop.</p></div>
+    <div class="card"><h3>Audit actor &amp; timestamp</h3><p>Reviewing "what did this person do, and when" answers from an index instead of scanning the whole audit table.</p></div>
+  </div>
+  <div class="split" style="align-items:center">
+    <pre class="code"><span class="c">-- the shapes the indexes serve</span>
+<span class="k">SELECT</span> ... <span class="k">FROM</span> scan_results <span class="k">WHERE</span> job_id = <span class="s">:id</span>;             <span class="c">-- FK index</span>
+<span class="k">SELECT</span> ... <span class="k">FROM</span> scan_jobs <span class="k">WHERE</span> status = <span class="s">'QUEUED'</span>
+   <span class="k">ORDER BY</span> created_at;                                  <span class="c">-- status/time</span>
+<span class="k">SELECT</span> ... <span class="k">FROM</span> audit_events
+   <span class="k">WHERE</span> actor_id = <span class="s">:user</span> <span class="k">ORDER BY</span> occurred_at <span class="k">DESC</span>;     <span class="c">-- actor/time</span></pre>
+    <div>
+      <ul class="clean">
+        <li><b>Migrations are the single schema authority</b> — Alembic, never <code>create_all()</code> for upgrades.</li>
+        <li>Indexes are added with the migration that introduces the query, so schema and access path ship together.</li>
+        <li>The audit chain's primary key on <code>chain_index</code> gives the chain a dense, ordered scan with no gaps.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 17. GALLERY 1 ============ -->
+<section class="slide" aria-label="Screenshots: discover">
+  <p class="eyebrow">The running app · discover</p>
+  <h2>From a connection to bounded findings.</h2>
+  <div class="grid g2">
+    <figure class="shot"><img src="presentation-assets/01-sign-in.png" alt="Sign in page"><figcaption>Sign in — server-side session, Argon2 hashes, CSRF token on unsafe requests.</figcaption></figure>
+    <figure class="shot"><img src="presentation-assets/03-connections.png" alt="Connections page"><figcaption>Connections — credentials encrypted and write-only; test and discover.</figcaption></figure>
+    <figure class="shot"><img src="presentation-assets/04-schema-explorer.png" alt="Schema explorer"><figcaption>Schema Explorer — 4 tables, columns with types, primary keys and foreign-key relationships.</figcaption></figure>
+    <figure class="shot"><img src="presentation-assets/05-scan-results.png" alt="Scan results"><figcaption>Scan Results — bounded samples; findings are candidates, never a full inventory.</figcaption></figure>
+  </div>
+</section>
+
+<!-- ============ 18. GALLERY 2 ============ -->
+<section class="slide" aria-label="Screenshots: protect">
+  <p class="eyebrow">The running app · protect</p>
+  <h2>From a recommendation to a masked view.</h2>
+  <div class="grid g2">
+    <figure class="shot"><img src="presentation-assets/06-ai-classification.png" alt="AI classification"><figcaption>AI Classification — advisory only; runs on metadata and sanitized evidence, never raw rows.</figcaption></figure>
+    <figure class="shot"><img src="presentation-assets/07-masking-policies.png" alt="Masking policies"><figcaption>Masking Policies — immutable versions v1–v4, each with per-column rules.</figcaption></figure>
+    <figure class="shot"><img src="presentation-assets/08-policy-preview.png" alt="Policy preview"><figcaption>Preview — each column's real masking expression run over invented example values.</figcaption></figure>
+    <figure class="shot"><img src="presentation-assets/09-protected-output.png" alt="Protected output"><figcaption>Protected output — the first rows as <code>ps_reader</code> sees them through the deployed view.</figcaption></figure>
+  </div>
+</section>
+
+<!-- ============ 19. GALLERY 3 ============ -->
+<section class="slide" aria-label="Screenshots: manage">
+  <p class="eyebrow">The running app · manage &amp; audit</p>
+  <h2>Decisions, integrity and accounts.</h2>
+  <div class="grid g3">
+    <figure class="shot"><img src="presentation-assets/10-approval-queue.png" alt="Approval queue"><figcaption>Approval Queue — an explicit human decision before any deployment.</figcaption></figure>
+    <figure class="shot"><img src="presentation-assets/12-users.png" alt="Users page"><figcaption>Users — accounts are deactivated, never deleted, so audit history survives.</figcaption></figure>
+    <figure class="shot"><img src="presentation-assets/13-settings.png" alt="Settings page"><figcaption>Settings — workspace configuration under the same audited, role-checked API.</figcaption></figure>
+  </div>
+  <div class="note mint">Every action on these screens writes an <b>audit event</b> in the same transaction, and that event is sealed into the hash chain.</div>
+</section>
+
+<!-- ============ 20. SQL TRANSCRIPT ============ -->
+<section class="slide" aria-label="SQL evidence">
+  <p class="eyebrow">Evidence · the same table, three roles</p>
+  <h2>The protection is visible from <code>psql</code> — not just the UI.</h2>
+  <div class="grid g2" style="align-items:stretch">
+    <div>
+      <pre class="code term"><span class="p">$</span> psql -U ps_scanner -d enterprise_demo
+    -c <span class="s">"SELECT full_name, email, pan, aadhaar
+          FROM enterprise.customers LIMIT 3;"</span>
+
+      full_name       |         email         |    pan     |    aadhaar
+----------------------+-----------------------+------------+----------------
+ Synthetic Customer 1 | customer1@example.com | ABCDE0001F | 2345 6789 0001
+ Synthetic Customer 2 | customer2@example.com | ABCDE0002F | 2345 6789 0002
+ Synthetic Customer 3 | customer3@example.com | ABCDE0003F | 2345 6789 0003</pre>
+      <div class="note" style="margin-top:12px">The <b>scanner</b> may read authorised source tables — that is what detection needs. It still cannot write.</div>
+    </div>
+    <div>
+      <pre class="code term"><span class="p">$</span> psql -U ps_reader -d enterprise_demo
+    -c <span class="s">"SELECT full_name, email, phone
+          FROM privacyshield_masked.customers_20f808f337c9
+         LIMIT 3;"</span>
+
+             full_name              |             email              | phone
+------------------------------------+--------------------------------+-------
+ ab41a5ed4828fa3a4996cf2022450abc… | e6957fdbf73d7fb91eac55242f133e… |
+ 0291333bba09fb4d0cf975d945605bde… | 5e6e8af461538c92a0d082b024eba7… |
+ ceebb322eb28f2bb9563337b9279704a… | 7f6dea1c4ebcdf01ff95232e9f788e… |
+
+<span class="p">$</span> psql -U ps_reader -d enterprise_demo
+    -c <span class="s">"SELECT full_name FROM enterprise.customers LIMIT 1;"</span>
+<span class="e">ERROR:  permission denied for schema enterprise</span></pre>
+      <div class="note mint" style="margin-top:12px">The <b>reader</b> sees only the approved projection, and cannot reach the base table at all.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 21. RUNBOOK ============ -->
+<section class="slide" aria-label="Run it yourself">
+  <p class="eyebrow">Reproduce · verify it yourself</p>
+  <h2>Everything above runs locally in Docker.</h2>
+  <div class="split" style="align-items:start">
+    <div>
+      <pre class="code">git clone https://github.com/Taarunkarthik/PRIVACY-SHIELD.git
+cd PRIVACY-SHIELD &amp;&amp; git switch dev/privacyshield
+
+python scripts/setup.py            <span class="c"># generates local secrets</span>
+docker compose up --build -d --wait
+
+docker compose exec api python -m app.cli create-admin \
+    --email admin@example.com      <span class="c"># no default password</span>
+
+<span class="c"># then open http://localhost:8080</span></pre>
+      <div class="chips" style="margin-top:14px"><span class="chip">PostgreSQL 16</span><span class="chip">Redis + Celery</span><span class="chip">Presidio detection</span><span class="chip">optional local Ollama</span></div>
+    </div>
+    <div>
+      <pre class="code term"><span class="c"># the full acceptance gate, against real services</span>
+<span class="p">$</span> python scripts/check.py --integration
+
+<span class="c"># proven on a real PostgreSQL, Redis and Celery worker:</span>
+<span class="tick">✓</span> migrations applied by the migration role
+<span class="tick">✓</span> scanner cannot write; reader cannot read base tables
+<span class="tick">✓</span> deployment idempotency and reconciliation
+<span class="tick">✓</span> audit chain verification</pre>
+      <ul class="clean" style="margin-top:14px">
+        <li>CI runs the same gate on every push.</li>
+        <li>The bundled target data is <b>synthetic</b>.</li>
+        <li>Per-phase verification records live in <code>docs/</code>.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 22. LIMITATIONS ============ -->
+<section class="slide" aria-label="Limitations and future work">
+  <p class="eyebrow">Honest scope</p>
+  <h2>What this is, and what it is not.</h2>
+  <div class="grid g2">
+    <div class="card"><h3>Limitations</h3>
+      <ul class="clean">
+        <li>PAN and Aadhaar detection identifies <b>candidates</b>, not verified identities.</li>
+        <li>Findings describe a <b>bounded sample</b>, not full-table coverage.</li>
+        <li>AI output is <b>advisory</b>; it cannot execute SQL and needs human review.</li>
+        <li>Deployment onto source tables that use <b>row-level security is deferred</b> (scanning still respects RLS).</li>
+        <li>The default configuration is a <b>local demonstration</b>, not a compliance certification.</li>
+      </ul>
+    </div>
+    <div class="card"><h3>Future work</h3>
+      <ul class="clean">
+        <li>Policy deployment into RLS-protected source tables.</li>
+        <li>Column-level <b>GRANT</b> policies alongside view-based masking.</li>
+        <li>Scheduled re-scans with <b>schema-drift detection</b> against the stored fingerprint.</li>
+        <li>Cross-database pseudonym domains so joins survive masking.</li>
+        <li>TLS, secure cookies and explicit origins before any exposure beyond localhost.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="note">Presenting limitations is part of the engineering: each one is a decision with a reason, not an omission.</div>
+</section>
+
+<!-- ============ 23. CLOSE ============ -->
+<section class="slide" aria-label="Close">
+  <p class="eyebrow">Thank you</p>
+  <h2>The database is not the storage layer of this project. It is the design.</h2>
+  <div class="grid g4">
+    <div class="stat"><div class="v">15</div><div class="k">Tables</div></div>
+    <div class="stat"><div class="v">20</div><div class="k">Relationships</div></div>
+    <div class="stat"><div class="v">6</div><div class="k">Database roles</div></div>
+    <div class="stat"><div class="v">0</div><div class="k">Source rows modified</div></div>
+  </div>
+  <div class="chips">
+    <span class="chip">Integrity constraints</span><span class="chip">Composite FKs</span><span class="chip">Normalization + JSONB</span>
+    <span class="chip">security_barrier views</span><span class="chip">DCL / least privilege</span><span class="chip">ACID transactions</span>
+    <span class="chip">Idempotency</span><span class="chip">Indexing</span><span class="chip">Migrations</span><span class="chip">Tamper-evident audit</span>
+  </div>
+  <hr class="rule">
+  <p class="lede" style="margin-bottom:6px">Repository and full documentation:</p>
+  <p class="mono" style="font-family:var(--font-mono);color:var(--mint);font-size:clamp(.9rem,1.15vw,1.1rem)">github.com/Taarunkarthik/PRIVACY-SHIELD</p>
+  <p class="muted" style="font-family:var(--font-mono);font-size:13px;margin-top:14px">Taarun · B.Tech Computer Science Engineering · Amrita Bangalore · DBMS coursework</p>
+</section>
+
+</main>
+
+<script>
+  const slides = Array.from(document.querySelectorAll('.slide'));
+  const progress = document.getElementById('progress');
+  const count = document.getElementById('count');
+  let index = 0;
+
+  const pad = (n) => String(n).padStart(2, '0');
+  const update = () => {
+    progress.style.width = ((index + 1) / slides.length * 100) + '%';
+    count.textContent = pad(index + 1) + ' / ' + pad(slides.length);
+  };
+  const go = (n) => {
+    index = Math.max(0, Math.min(slides.length - 1, n));
+    slides[index].scrollIntoView({ behavior: 'smooth', block: 'start' });
+    update();
+  };
+
+  document.getElementById('next').addEventListener('click', () => go(index + 1));
+  document.getElementById('prev').addEventListener('click', () => go(index - 1));
+
+  window.addEventListener('keydown', (e) => {
+    if (e.target.closest('input, textarea, select')) return;
+    switch (e.key) {
+      case 'ArrowRight': case 'PageDown': case ' ': e.preventDefault(); go(index + 1); break;
+      case 'ArrowLeft':  case 'PageUp':   e.preventDefault(); go(index - 1); break;
+      case 'Home': e.preventDefault(); go(0); break;
+      case 'End':  e.preventDefault(); go(slides.length - 1); break;
+    }
+  });
+
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (entry.isIntersecting) {
+        index = slides.indexOf(entry.target);
+        update();
+      }
+    });
+  }, { threshold: 0.55 });
+  slides.forEach((s) => observer.observe(s));
+
+  update();
+</script>
+</body>
+</html>
