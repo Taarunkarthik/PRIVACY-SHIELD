@@ -1,13 +1,8 @@
 import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
-import { ArrowRight, Eye, EyeOff, Pause, Play } from 'lucide-react';
+import { ArrowRight, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../api/auth';
 import { Brand } from '../components/Brand';
-import { maskValue } from '../components/fieldEngine';
-import { useMotion } from '../components/motion';
-
-// The key to the two colours used across the product, shown on one invented value.
-const EXAMPLE = '+91 98765 43210';
 
 export function Login() {
   const { login, expired, error: connectionError, refresh } = useAuth();
@@ -16,8 +11,6 @@ export function Login() {
   const [visible, setVisible] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
-  const motion = useMotion();
-  const moving = motion.supported && !motion.reduced;
 
   useEffect(() => { document.title = 'Sign in · PrivacyShield'; }, []);
 
@@ -40,16 +33,13 @@ export function Login() {
     <section className="login-story" aria-label="About PrivacyShield">
       <Brand />
       <div className="login-story-copy">
+        <div className="kicker">Postgres privacy control plane</div>
+        <div className="sqlcap">create view … with (<b>security_barrier</b> = true)</div>
         <h1>Personal data, found and masked.</h1>
         <p>PrivacyShield scans your PostgreSQL tables for emails, phone numbers, PAN and Aadhaar numbers, then deploys masked views once a person has approved the rules.</p>
-        <dl className="mask-key">
-          <div><dt><span className="key-dot exposed" aria-hidden="true" />Exposed</dt><dd><code className="exposed">{EXAMPLE}</code></dd></div>
-          <div><dt><span className="key-dot masked" aria-hidden="true" />Masked</dt><dd><code className="masked">{maskValue(EXAMPLE)}</code></dd></div>
-        </dl>
       </div>
       <p className="login-footer">
-        <span>Every record behind this page is invented.{moving && !motion.paused && ' Move the pointer across them to mask them.'}</span>
-        {moving && <button type="button" className="motion-toggle" onClick={motion.togglePaused}>{motion.paused ? <Play size={14} /> : <Pause size={14} />}{motion.paused ? 'Resume background motion' : 'Pause background motion'}</button>}
+        <span>Every record behind this page is invented. Nothing leaves this local workspace.</span>
       </p>
     </section>
     <section className="login-form-panel">
