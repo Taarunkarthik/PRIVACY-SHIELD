@@ -89,7 +89,7 @@ jobs:
       TEST_PRISTINE_POSTGRES_URL: postgresql://postgres:disposable-ci-superuser@127.0.0.1:5434/postgres
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-python@v7.0.0
+      - uses: actions/setup-python@v7.1.0
         with:
           python-version: "3.12"
       - uses: astral-sh/setup-uv@v10.2.0
