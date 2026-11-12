@@ -231,7 +231,7 @@ def _refused(connection, statement: str) -> str:
 
 DENIED = "42501"  # insufficient_privilege
 
-# The table of people in each further demo database, and one policy that fits both.
+# People tables in the synthetic datasets that exercise masking deployment.
 EXTRA_PEOPLE = {"hospital": "patients", "university": "students", "masked": "customers"}
 PEOPLE_RULES = [
     {"column_name": "id", "action": "KEEP"},
@@ -495,6 +495,9 @@ def test_start_script_serves_the_whole_product_from_one_process(instance, tmp_pa
             "Synthetic enterprise",
             "Synthetic hospital",
             "Synthetic university",
+            "Masked policy lab",
+            "Vulnerability lab",
+            "Basic inventory",
         }
         demo = by_name["Synthetic enterprise"]
         assert (demo["host"], demo["port"]) == (instance.server.host, instance.server.port)
@@ -564,7 +567,7 @@ def test_start_script_serves_the_whole_product_from_one_process(instance, tmp_pa
         assert policy["status"] == "DEPLOYED", policy
         assert deployment["status"] == "COMPLETED", deployment
 
-        # ------------------------------------------- the two further demo databases
+        # ------------------------------------------ the five further demo databases
         # Each is its own database on the same server, registered at startup, and
         # found with no schema named: the default scope covers the demo schemas.
         found, extra_views = {}, {}
