@@ -277,7 +277,7 @@ BASIC = DemoDataset(
         "id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY, name text NOT NULL UNIQUE)",
         "CREATE TABLE inventory.suppliers ("
         "id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY, "
-        "name text NOT NULL, country text NOT NULL)",
+        "name text NOT NULL, tier text NOT NULL)",
         "CREATE TABLE inventory.products ("
         "id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY, "
         "category_id integer NOT NULL REFERENCES inventory.categories(id), "
@@ -293,9 +293,9 @@ BASIC = DemoDataset(
 INSERT INTO inventory.categories(name)
 SELECT (ARRAY['Office','Kitchen','Outdoor','Electronics','Storage'])[1 + n % 5]
        || ' ' || n FROM generate_series(1, 20) AS n;
-INSERT INTO inventory.suppliers(name,country)
+INSERT INTO inventory.suppliers(name,tier)
 SELECT 'Supplier ' || n,
-       (ARRAY['India','Singapore','Japan','Australia'])[1 + n % 4]
+       (ARRAY['bronze','silver','gold','platinum'])[1 + n % 4]
 FROM generate_series(1, 20) AS n;
 INSERT INTO inventory.products(category_id,supplier_id,name,unit_price)
 SELECT 1 + n % 20, 1 + (n * 7) % 20,

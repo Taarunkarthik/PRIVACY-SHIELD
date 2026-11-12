@@ -8,7 +8,7 @@ import re
 
 import pytest
 
-from app.demo_datasets import DEMO_DATASETS, ENTERPRISE, EXTRA_DATASETS, dataset_for
+from app.demo_datasets import BASIC, DEMO_DATASETS, ENTERPRISE, EXTRA_DATASETS, dataset_for
 from app.demo_policies import starter_policy_rules
 from app.services.discovery.catalog import DEFAULT_SCHEMAS
 
@@ -77,6 +77,13 @@ def test_email_addresses_use_only_reserved_example_domains(dataset):
 def test_discovery_finds_each_demo_schema_when_none_is_named():
     for item in DEMO_DATASETS:
         assert item.schema in DEFAULT_SCHEMAS
+
+
+def test_basic_inventory_uses_non_personal_supplier_tiers():
+    text = "\n".join(BASIC.statements)
+    assert "suppliers(name,tier)" in text
+    assert all(tier in text for tier in ("bronze", "silver", "gold", "platinum"))
+    assert not any(location in text for location in ("India", "Singapore", "Japan", "Australia"))
 
 
 def test_masked_demo_starter_rules_cover_columns_and_withhold_free_text():
