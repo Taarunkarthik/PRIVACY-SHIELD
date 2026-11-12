@@ -101,13 +101,15 @@ def _pre_audience_fingerprint(source_schema, source_table, view_name, columns):
 def test_reader_only_plan_matches_values_recorded_before_audiences_existed():
     # Recorded by running this fixture through the compiler as it was before the
     # audience change. An approved policy stored with this fingerprint must
-    # still deploy, so neither value may ever move.
+    # still deploy, so the fingerprint may never move. The SQL digest moved once,
+    # when PARTIAL was made to mask values shorter than eight characters
+    # entirely (fail closed), and is pinned again here.
     plan = _compile()
     assert plan.view_name == "customers_20f808f337c9"
     assert plan.plan_hash == "2b3ff43302cd109f72d392459736eb048ac9551720e4d1509eecec9a7b76ca22"
     assert (
         hashlib.sha256(plan.sql.encode()).hexdigest()
-        == "524e2d7854374e5c1b4ff69eeab0c4b586e23d04a693902da3e579ef3dd0a864"
+        == "fc7d61d81c3f2345f5b6ea8da5ae2acb881e1323af791709ba9ce9c46a7caa81"
     )
     assert plan.statements == [plan.sql]
     assert plan.audiences == ["reader"]

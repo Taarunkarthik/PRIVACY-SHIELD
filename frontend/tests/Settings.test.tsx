@@ -48,7 +48,7 @@ describe('workspace settings', () => {
     expect(name).toHaveValue('Privacy workspace');
     await visitor.clear(name);
     await visitor.type(name, 'Acme analytics');
-    const retention = screen.getByLabelText(/Retention period/);
+    const retention = screen.getByLabelText(/Retention target/);
     await visitor.clear(retention);
     await visitor.type(retention, '90');
 
@@ -142,7 +142,7 @@ describe('workspace settings', () => {
     const visitor = userEvent.setup({ delay: null });
     render(<App />);
 
-    const retention = await screen.findByLabelText(/Retention period/);
+    const retention = await screen.findByLabelText(/Retention target/);
     fireEvent.change(retention, { target: { value: '0' } });
     await visitor.click(screen.getByRole('button', { name: 'Save changes' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Retention must be a whole number between 1 and 3650 days.');

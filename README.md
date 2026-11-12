@@ -134,6 +134,8 @@ erDiagram
 | `policy_deployments` | Policy FK, **unique idempotency key**, execution state, target receipt |
 | `audit_events` | Optional actor FK, event type, subject, timestamp, correlation ID, sanitized details |
 | `audit_chain` | Insert-only hash chain over `audit_events` |
+| `app_settings` | Singleton workspace row (unique expression index), bounded workspace name, retention days constrained to 1–3650, updating-user FK |
+| `custom_patterns` | Unique pattern name, bounded name and regex length, constrained category, enabled flag, creating-user FK |
 
 Design choices worth noting:
 
@@ -327,6 +329,8 @@ Per-phase evidence: [`docs/verification.md`](docs/verification.md) and `docs/ver
 - PAN and Aadhaar detection identifies **candidates**, not verified identities. Findings describe bounded samples, not full-table coverage.
 - AI output is advisory, is validated against enumerated categories and actually discovered columns, and cannot execute SQL. The AI test double checks orchestration and failure handling; it does not establish real model quality.
 - Raw samples, keys and credentials must not appear in logs, task payloads, AI input or committed files.
+- Custom detection patterns are stored and validated, but scans do not currently apply them; the Settings page states this.
+- `retention_days` is recorded policy intent; no pruning job enforces it yet.
 - The default configuration supports a **local demonstration**. Before exposing it beyond localhost, terminate TLS and enable secure cookies with explicit allowed origins. This is not a production deployment or a compliance certification.
 - Deployment onto source tables that use row-level security is deferred; read-only scanning still respects existing RLS.
 

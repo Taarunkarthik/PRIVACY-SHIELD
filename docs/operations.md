@@ -2,7 +2,7 @@
 
 ## Prepare Windows and Docker
 
-Run from `D:\DBMS PROJECT\PRIVACY-SHIELD` in PowerShell. Inspect existing files and Git history before changing branches. This project uses Docker Linux containers; Celery is verified in Linux, not as a native Windows worker.
+Run from the repository root in PowerShell. Inspect existing files and Git history before changing branches. This project uses Docker Linux containers; Celery is verified in Linux, not as a native Windows worker.
 
 Start Docker Desktop normally. Confirm the engine is available:
 
@@ -49,12 +49,12 @@ Interactive API documentation is available at [http://localhost:8080/api/docs](h
 ## Foundation demo
 
 1. Sign in with the bootstrapped account. A failed login should reveal no credential details.
-2. Open Overview. Counts come from metadata and may be zero because scan and policy workflows are not yet implemented.
-3. Navigate the nine application pages. Unavailable modules must explicitly identify their planned phase rather than show invented scan results.
+2. Open Overview. Counts come from live metadata; a fresh workspace with no scans or policies shows zeros.
+3. Navigate the eleven application pages: Overview, Connections, Schema Explorer, Scan Results, AI Classification, Masking Policies, Approval Queue, Deployments, Audit Logs, Settings, and Users.
 4. Sign out. Reusing the prior session must fail.
 5. Run acceptance checks, including real database permissions and worker execution.
 
-The target seed contains synthetic customers, accounts, transactions, and support records, with relationships, JSONB, and free-text examples. It is provisioned independently from control-plane metadata. Phase 1 does not register it as a scanned connection or claim PII findings.
+The target seed contains synthetic customers, accounts, transactions, and support records, with relationships, JSONB, and free-text examples. It is provisioned independently from control-plane metadata. The bundled target can be registered on Connections, discovered, and scanned; PII findings come only from a scan you run.
 
 ## Tests
 
@@ -72,7 +72,7 @@ To include all frontend checks, install Node 24/npm on the host and run:
 python scripts/check.py --integration --frontend
 ```
 
-`--frontend` runs `npm ci`, type checking, component tests, and a production build using host npm. The default Docker-only checks do not run these frontend commands. GitHub Actions runs frontend checks separately. The Phase 2 workflow adds a separate target PostgreSQL service and initializes it from the same target role/data scripts used by Compose; acceptance of that new workflow remains pending until its run passes.
+`--frontend` runs `npm ci`, type checking, component tests, and a production build using host npm. The default Docker-only checks do not run these frontend commands. GitHub Actions runs frontend checks separately, and provisions a separate target PostgreSQL service from the same role and data scripts used by Compose.
 
 After bootstrapping an administrator, verify the actual browser-facing HTTP proxy and authentication endpoints using a private file containing that account's password:
 
@@ -94,7 +94,7 @@ Set-Location frontend
 npm run test:e2e
 ```
 
-This example uses installed Microsoft Edge. Alternatively, install Playwright Chromium with `npx playwright install chromium` and omit `PS_E2E_BROWSER_CHANNEL`. `PS_E2E_BASE_URL` defaults to `http://localhost:8080`. Traces and video are disabled; screenshots are written only to ignored test artifacts. The published Phase 1 browser check verifies all nine routes, live API metrics, session persistence, desktop/mobile layout, and logout. CI's `npm test` remains the mocked component suite and does not need an administrator secret.
+This example uses installed Microsoft Edge. Alternatively, install Playwright Chromium with `npx playwright install chromium` and omit `PS_E2E_BROWSER_CHANNEL`. `PS_E2E_BASE_URL` defaults to `http://localhost:8080`. Traces and video are disabled; screenshots are written only to ignored test artifacts. The browser suite covers authentication, discovery, scans, classifications, policies, settings and users, including desktop/mobile layout and logout. CI's `npm test` remains the mocked component suite and does not need an administrator secret.
 
 Backend development commands (from `backend/`):
 

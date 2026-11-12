@@ -21,7 +21,7 @@ flowchart LR
     Views --> Target
 ```
 
-The full diagram is the delivery target. Phases 1–3 deliver authentication, dashboard summary, role boundaries, migrations, discovery and real Presidio scanning. Phase 4 adds advisory Ollama classification. Policy deployment is gated by Phase 5.
+All seven phases are delivered, so this diagram describes the running system. See [the roadmap](roadmap.md) for per-phase scope, commits, and acceptance evidence.
 
 | Service | Responsibility | Default host exposure |
 | --- | --- | --- |

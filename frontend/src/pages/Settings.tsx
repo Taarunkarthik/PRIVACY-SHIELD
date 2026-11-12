@@ -178,27 +178,28 @@ export function Settings() {
 
     {settings && <>
       <section className="panel settings-panel" aria-label="Workspace settings">
-        <div className="panel-heading"><div><h2>Workspace</h2><p>Identity and data retention for this workspace.</p></div><Settings2 size={19} className="muted" /></div>
+        <div className="panel-heading"><div><h2>Workspace</h2><p>Identity and the retention target for this workspace.</p></div><Settings2 size={19} className="muted" /></div>
         {isAdmin ? <form className="settings-form" onSubmit={saveWorkspace} noValidate>
           <div className="form-grid">
             <div className="form-field"><label htmlFor="workspace-name">Workspace name</label><input id="workspace-name" value={workspaceName} maxLength={WORKSPACE_NAME_LIMIT} onChange={(event) => { setWorkspaceName(event.target.value); setWorkspaceSaved(false); }} /></div>
-            <div className="form-field"><label htmlFor="retention-days">Retention period <span>days</span></label><input id="retention-days" type="number" min={MIN_RETENTION_DAYS} max={MAX_RETENTION_DAYS} value={retentionDays} onChange={(event) => { setRetentionDays(event.target.value); setWorkspaceSaved(false); }} /></div>
+            <div className="form-field"><label htmlFor="retention-days">Retention target <span>days</span></label><input id="retention-days" type="number" min={MIN_RETENTION_DAYS} max={MAX_RETENTION_DAYS} value={retentionDays} onChange={(event) => { setRetentionDays(event.target.value); setWorkspaceSaved(false); }} /></div>
           </div>
+          <p className="form-note">The value is recorded as a policy target; automatic pruning is not enabled in this build.</p>
           {workspaceError && <p className="form-note error" role="alert">{workspaceError}</p>}
           {workspaceSaved && <p className="form-note success" role="status">Workspace settings saved.</p>}
           <div className="form-actions"><p><ShieldCheck size={14} /> Changes are recorded in the audit log.</p><div><button className="button primary" type="submit" disabled={savingWorkspace}><Save size={15} />{savingWorkspace ? 'Saving…' : 'Save changes'}</button></div></div>
         </form>
         : <dl className="settings-readonly">
           <div><dt>Workspace name</dt><dd>{settings.workspace_name}</dd></div>
-          <div><dt>Retention period</dt><dd>{settings.retention_days} days</dd></div>
+          <div><dt>Retention target</dt><dd>{settings.retention_days} days</dd></div>
         </dl>}
       </section>
 
       <section className="panel settings-panel" aria-label="Custom detection patterns">
-        <div className="panel-heading"><div><h2>Custom detection patterns <span className="count-badge">{patterns.length}</span></h2><p>Bounded regular expressions that supplement built-in detection.</p></div><KeyRound size={19} className="muted" /></div>
-        {!isAdmin && <p className="role-note">Only administrators can change workspace settings. These patterns apply to detection across the workspace.</p>}
+        <div className="panel-heading"><div><h2>Custom detection patterns <span className="count-badge">{patterns.length}</span></h2><p>Bounded regular expressions saved for review. Scans do not apply them yet.</p></div><KeyRound size={19} className="muted" /></div>
+        {!isAdmin && <p className="role-note">Only administrators can change workspace settings. Scans do not apply custom patterns in this build.</p>}
         {patterns.length === 0
-          ? <div className="data-empty"><KeyRound size={34} strokeWidth={1.3} /><h3>No custom patterns</h3><p>{isAdmin ? 'Add a pattern to flag organisation-specific sensitive data.' : 'Custom patterns added by an administrator will appear here.'}</p></div>
+          ? <div className="data-empty"><KeyRound size={34} strokeWidth={1.3} /><h3>No custom patterns</h3><p>{isAdmin ? 'Add a pattern to record an organisation-specific detection rule.' : 'Custom patterns added by an administrator will appear here.'}</p></div>
           : <div className="pattern-list">{patterns.map((pattern) => (
             <div className="pattern-row" key={pattern.id}>
               <span className="pattern-icon"><KeyRound size={16} /></span>
@@ -221,7 +222,7 @@ export function Settings() {
             <div className="form-field"><label htmlFor="pattern-category">Category</label><select id="pattern-category" value={patternCategory} onChange={(event) => setPatternCategory(event.target.value)}>{patternCategories.map((value) => <option key={value} value={value}>{patternCategoryLabel(value)}</option>)}</select></div>
             <div className="form-field span-two"><label htmlFor="pattern-regex">Regular expression</label><input id="pattern-regex" value={patternRegex} maxLength={PATTERN_REGEX_LIMIT} placeholder="\\b[A-Z]{5}[0-9]{4}[A-Z]\\b" onChange={(event) => setPatternRegex(event.target.value)} /></div>
           </div>
-          <label className="checkbox-field"><input type="checkbox" checked={patternEnabled} onChange={(event) => setPatternEnabled(event.target.checked)} /><span>Enable this pattern<small>Disabled patterns are stored but not applied during detection.</small></span></label>
+          <label className="checkbox-field"><input type="checkbox" checked={patternEnabled} onChange={(event) => setPatternEnabled(event.target.checked)} /><span>Enable this pattern<small>The flag records intent; scans do not apply custom patterns in this build.</small></span></label>
           {patternError && <p className="form-note error" role="alert">{patternError}</p>}
           <div className="form-actions"><p><KeyRound size={14} /> Try the expression on synthetic data before relying on it.</p><div><button className="button primary" type="submit" disabled={patternBusy === 'add' || patterns.length >= PATTERN_LIMIT}><Plus size={15} />{patternBusy === 'add' ? 'Adding…' : 'Add pattern'}</button></div></div>
         </form>}

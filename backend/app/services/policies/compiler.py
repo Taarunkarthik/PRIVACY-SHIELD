@@ -230,6 +230,7 @@ def column_expression(decision: ColumnDecision) -> str:
     if decision.action == "PARTIAL":
         return (
             f"CASE WHEN {source} IS NULL THEN NULL "
+            f"WHEN length({source}::text) < 8 THEN '{MASK_FALLBACK}' "
             f"ELSE '***' || right({source}::text, 4) END"
         )
     if decision.action in _FORMAT_MASKS:

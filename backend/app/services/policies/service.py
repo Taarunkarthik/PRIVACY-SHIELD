@@ -4,10 +4,12 @@ The control plane never stores source values. Compilation reads only the saved
 catalog snapshot and the policy's own rules.
 """
 
+import hashlib
+import json
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -133,6 +135,23 @@ def audience_view(plan: CompiledPlan, audience: str) -> AudienceView:
     return view
 
 
+def policy_version_lock_key(connection_id: UUID, schema_name: str, table_name: str) -> int:
+    """Advisory-lock key for one table's version sequence.
+
+    Versions are ``max(version) + 1`` per connection, schema and table, so two
+    concurrent creates for the same table would read the same maximum and
+    collide on the unique constraint. Hashing the composite identity into a
+    signed 64-bit key lets them serialise on a transaction-scoped advisory lock
+    without serialising unrelated tables.
+    """
+    identity = json.dumps([str(connection_id), schema_name, table_name])
+    return int.from_bytes(
+        hashlib.sha256(b"privacyshield:policy_version:" + identity.encode()).digest()[:8],
+        "big",
+        signed=True,
+    )
+
+
 def _next_version(db: Session, connection_id: UUID, schema_name: str, table_name: str) -> int:
     latest = db.scalar(
         select(func.max(MaskingPolicy.version)).where(
@@ -165,6 +184,14 @@ def create_policy(db: Session, user: User, payload: PolicyCreate) -> MaskingPoli
             raise PolicyFailure("DUPLICATE_RULE")
         seen.add((rule.column_name, rule.audience))
 
+    db.execute(
+        text("SELECT pg_advisory_xact_lock(:key)"),
+        {
+            "key": policy_version_lock_key(
+                payload.connection_id, payload.schema_name, payload.table_name
+            )
+        },
+    )
     policy = MaskingPolicy(
         connection_id=payload.connection_id,
         schema_name=payload.schema_name,

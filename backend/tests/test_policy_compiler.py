@@ -61,6 +61,19 @@ def test_compile_plan_partial_masks_text():
     assert "'***'" in plan.sql
 
 
+def test_compile_plan_partial_masks_short_values_entirely():
+    columns = [
+        ColumnDecision(name="phone", data_type="text", action="PARTIAL", source_column="phone")
+    ]
+    plan = compile_plan(source_schema="public", source_table="test", columns=columns)
+    # Fewer than eight characters has no shape to keep, so nothing is revealed.
+    assert (
+        'CASE WHEN "phone" IS NULL THEN NULL '
+        'WHEN length("phone"::text) < 8 THEN \'***\' '
+        'ELSE \'***\' || right("phone"::text, 4) END AS "phone"'
+    ) in plan.sql
+
+
 def test_compile_plan_pseudonymize_uses_keyed_hmac_and_text_output():
     columns = [
         ColumnDecision(
