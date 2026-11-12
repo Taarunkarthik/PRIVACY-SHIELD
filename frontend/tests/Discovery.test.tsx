@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { App } from '../src/App';
-import type { Connection, SchemaSnapshot } from '../src/api/connections';
+import type { Connection, ConnectionSecurityFinding, SchemaSnapshot } from '../src/api/connections';
 
 const connection: Connection = { id: 'db-fixture', name: 'Synthetic enterprise', host: 'target-db', port: 5432, database_name: 'enterprise_demo', ssl_mode: 'disable', scanner_username: 'ps_scanner', deployer_username: null, is_active: true, created_at: '2026-10-09T10:00:00Z' };
 const snapshot: SchemaSnapshot = { snapshot_id: 'snapshot-fixture', discovered_at: '2026-10-09T10:10:00Z', fingerprint: 'fixture-fingerprint', catalog: { schemas: ['enterprise'], tables: [
@@ -23,7 +23,7 @@ async function fill(visitor: ReturnType<typeof userEvent.setup>, element: HTMLEl
   await visitor.paste(value);
 }
 
-function server({ role = 'ADMIN', items = [connection], noSchema = false, saveStatus = 201, schema = snapshot }: { role?: 'ADMIN' | 'ANALYST' | 'AUDITOR'; items?: Connection[]; noSchema?: boolean; saveStatus?: number; schema?: SchemaSnapshot } = {}) {
+function server({ role = 'ADMIN', items = [connection], noSchema = false, saveStatus = 201, schema = snapshot, securityFindings = [] }: { role?: 'ADMIN' | 'ANALYST' | 'AUDITOR'; items?: Connection[]; noSchema?: boolean; saveStatus?: number; schema?: SchemaSnapshot; securityFindings?: ConnectionSecurityFinding[] } = {}) {
   let saved = [...items];
   const fetchMock = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
     const path = String(url);
@@ -34,7 +34,7 @@ function server({ role = 'ADMIN', items = [connection], noSchema = false, saveSt
       saved = [connection]; return json(connection, 201);
     }
     if (path.endsWith('/connections/db-fixture') && init?.method === 'PATCH') return json(connection);
-    if (path.endsWith('/test')) return json({ status: 'ok', schemas: ['enterprise'], table_count: 2 });
+    if (path.endsWith('/test')) return json({ status: 'ok', schemas: ['enterprise'], table_count: 2, security_findings: securityFindings });
     if (path.endsWith('/discover')) return json(schema);
     if (path.endsWith('/schema')) return noSchema ? json({}, 404) : json(schema);
     throw new Error(`Unexpected fixture endpoint ${path}`);
@@ -44,6 +44,22 @@ function server({ role = 'ADMIN', items = [connection], noSchema = false, saveSt
 }
 
 describe('connection management', () => {
+  it('shows metadata-only vulnerability findings from the connection check', async () => {
+    window.history.replaceState({}, '', '/connections');
+    server({ securityFindings: [{
+      code: 'PUBLIC_TABLE_READ', severity: 'CRITICAL', title: 'PUBLIC can read source rows',
+      description: 'The PostgreSQL PUBLIC role has SELECT on this source table.',
+      schema_name: 'exposed', table_name: 'customers',
+    }] });
+    const visitor = userEvent.setup({ delay: null });
+    render(<App />);
+    await visitor.click(await screen.findByRole('button', { name: 'Test connection' }));
+    const assessment = await screen.findByRole('region', { name: 'Connection security assessment' });
+    expect(within(assessment).getByText('1 security finding')).toBeInTheDocument();
+    expect(within(assessment).getByText('PUBLIC can read source rows')).toBeInTheDocument();
+    expect(within(assessment).getByText(/Source records were not read/)).toBeInTheDocument();
+  });
+
   it('saves write-only credentials with CSRF and removes password fields on success', async () => {
     window.history.replaceState({}, '', '/connections');
     const fetchMock = server({ items: [] });

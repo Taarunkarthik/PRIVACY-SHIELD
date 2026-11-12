@@ -21,7 +21,7 @@ from uuid import UUID
 from cryptography.fernet import InvalidToken
 from email_validator import EmailNotValidError, validate_email
 from pydantic import ValidationError
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.cli import create_admin
@@ -29,10 +29,18 @@ from app.core.audit import record_event
 from app.core.database import session_factory
 from app.core.security import decrypt_credential, encrypt_credential
 from app.demo_datasets import dataset_for
-from app.models import DatabaseConnection, User
+from app.demo_policies import starter_policy_rules
+from app.models import DatabaseConnection, MaskingPolicy, SchemaSnapshot, User
 from app.render_bootstrap import BootstrapError, resolve_secrets
 from app.schemas.connections import ConnectionCreate
-from app.services.discovery.catalog import DiscoveryError, discover_catalog, validate_target_host
+from app.schemas.policies import PolicyCreate
+from app.services.discovery.catalog import (
+    DiscoveryError,
+    catalog_fingerprint,
+    discover_catalog,
+    validate_target_host,
+)
+from app.services.policies.service import PolicyFailure, create_policy, policy_version_lock_key
 
 logger = logging.getLogger("privacyshield.setup")
 
@@ -196,6 +204,99 @@ def ensure_demo_connection(
         return True
 
 
+def ensure_masked_policy_starters(connection_name: str) -> int:
+    """Create safe DRAFT policies for every table in the masked demonstration.
+
+    Policies are never submitted, approved, or deployed by startup. Existing
+    table policies are left untouched so operators retain their own decisions.
+    """
+    with session_factory()() as db:
+        connection = db.scalar(
+            select(DatabaseConnection).where(DatabaseConnection.name == connection_name)
+        )
+        if connection is None or not connection.is_active:
+            return 0
+        owner = db.scalar(
+            select(User)
+            .where(User.role == "ADMIN", User.is_active.is_(True))
+            .order_by(User.created_at, User.id)
+            .limit(1)
+        )
+        if owner is None:
+            return 0
+        try:
+            catalog = discover_catalog(connection, ["masked"])
+        except DiscoveryError as exc:
+            logger.warning("Masked policy starters were not created (%s)", exc.message)
+            return 0
+        fingerprint = catalog_fingerprint(catalog)
+        snapshot = db.scalar(
+            select(SchemaSnapshot)
+            .where(
+                SchemaSnapshot.connection_id == connection.id,
+                SchemaSnapshot.fingerprint == fingerprint,
+            )
+            .order_by(SchemaSnapshot.created_at.desc(), SchemaSnapshot.id.desc())
+        )
+        if snapshot is None:
+            snapshot = SchemaSnapshot(
+                connection_id=connection.id,
+                fingerprint=fingerprint,
+                catalog=catalog,
+            )
+            db.add(snapshot)
+            db.flush()
+            record_event(
+                db,
+                actor_id=owner.id,
+                event_type="SCHEMA_DISCOVERED",
+                subject_type="schema_snapshot",
+                subject_id=snapshot.id,
+            )
+            db.commit()
+            db.refresh(snapshot)
+
+        created = 0
+        for table in catalog["tables"]:
+            db.execute(
+                text("SELECT pg_advisory_xact_lock(:key)"),
+                {
+                    "key": policy_version_lock_key(
+                        connection.id, table["schema"], table["name"]
+                    )
+                },
+            )
+            exists = db.scalar(
+                select(MaskingPolicy.id).where(
+                    MaskingPolicy.connection_id == connection.id,
+                    MaskingPolicy.schema_name == table["schema"],
+                    MaskingPolicy.table_name == table["name"],
+                )
+            )
+            if exists is not None:
+                db.rollback()
+                continue
+            try:
+                create_policy(
+                    db,
+                    owner,
+                    PolicyCreate(
+                        connection_id=connection.id,
+                        schema_name=table["schema"],
+                        table_name=table["name"],
+                        snapshot_id=snapshot.id,
+                        rules=starter_policy_rules(table["columns"]),
+                    ),
+                )
+            except PolicyFailure as exc:
+                logger.warning("A masked starter policy was skipped (%s)", exc.code)
+                continue
+            created += 1
+        if created:
+            logger.info("Masked policy lab: created %d reviewable DRAFT policies", created)
+        return created
+
+
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     email = (os.environ.get("ADMIN_EMAIL") or "").strip() or None
@@ -234,6 +335,8 @@ def main() -> int:
                 name=dataset.connection_name,
                 schemas=[dataset.schema],
             )
+            if dataset.scenario == "masked":
+                ensure_masked_policy_starters(dataset.connection_name)
     except (SetupError, BootstrapError) as exc:
         logger.error("Setup failed: %s", exc)
         return 1

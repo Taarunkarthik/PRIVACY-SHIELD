@@ -57,6 +57,19 @@ services:
       retries: 20
     restart: unless-stopped
 
+  demo-provision:
+    <<: *backend
+    restart: "no"
+    environment:
+      TARGET_POSTGRES_PASSWORD: ${TARGET_POSTGRES_PASSWORD:?Run python scripts/setup.py}
+      SCANNER_PASSWORD: ${SCANNER_PASSWORD:?Run python scripts/setup.py}
+      DEPLOYER_PASSWORD: ${DEPLOYER_PASSWORD:?Run python scripts/setup.py}
+      READER_PASSWORD: ${READER_PASSWORD:?Run python scripts/setup.py}
+      BOOTSTRAP_DB_SSLMODE: disable
+    command: ["python", "-m", "app.provision_demos"]
+    depends_on:
+      target-db: {condition: service_healthy}
+
   redis:
     image: redis:7.4-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
     command: ["redis-server", "--appendonly", "yes", "--maxmemory", "128mb", "--maxmemory-policy", "noeviction"]
@@ -84,6 +97,7 @@ services:
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]
     depends_on:
       migrate: {condition: service_completed_successfully}
+      demo-provision: {condition: service_completed_successfully}
       redis: {condition: service_healthy}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health/ready', timeout=3)"]
@@ -97,6 +111,7 @@ services:
     command: ["celery", "-A", "app.workers.celery_app:celery_app", "worker", "--loglevel=WARNING", "--concurrency=1", "--beat", "--schedule=/tmp/privacyshield-beat"]
     depends_on:
       migrate: {condition: service_completed_successfully}
+      demo-provision: {condition: service_completed_successfully}
       redis: {condition: service_healthy}
 
   frontend:

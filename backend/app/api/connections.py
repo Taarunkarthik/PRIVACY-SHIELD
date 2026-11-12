@@ -25,6 +25,7 @@ from app.services.discovery.catalog import (
     discover_catalog,
     validate_target_host,
 )
+from app.services.discovery.security import assess_catalog_security
 
 router = APIRouter(prefix="/connections", tags=["Database connections"])
 
@@ -205,6 +206,7 @@ def test_connection(
 ) -> ConnectionTestResponse:
     record = find_connection(db, connection_id, lock=True)
     catalog = read_catalog(record, payload)
+    findings = assess_catalog_security(record, catalog)
     record_event(
         db,
         actor_id=user.id,
@@ -213,7 +215,11 @@ def test_connection(
         subject_id=record.id,
     )
     db.commit()
-    return ConnectionTestResponse(schemas=catalog["schemas"], table_count=len(catalog["tables"]))
+    return ConnectionTestResponse(
+        schemas=catalog["schemas"],
+        table_count=len(catalog["tables"]),
+        security_findings=findings,
+    )
 
 
 @router.post("/{connection_id}/discover", response_model=SnapshotResponse)

@@ -181,7 +181,22 @@ class SnapshotResponse(BaseModel):
     catalog: Catalog
 
 
+class ConnectionSecurityFinding(BaseModel):
+    code: Literal[
+        "PUBLIC_TABLE_READ",
+        "READER_SOURCE_ACCESS",
+        "PUBLIC_SCHEMA_CREATE",
+        "TABLE_WITHOUT_PRIMARY_KEY",
+    ]
+    severity: Literal["CRITICAL", "HIGH", "MEDIUM"]
+    title: str
+    description: str
+    schema_name: str
+    table_name: str | None
+
+
 class ConnectionTestResponse(BaseModel):
     status: Literal["ok"] = "ok"
     schemas: list[str]
     table_count: int
+    security_findings: list[ConnectionSecurityFinding] = Field(default_factory=list)

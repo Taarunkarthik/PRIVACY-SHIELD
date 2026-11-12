@@ -452,6 +452,17 @@ def provision_target(
                 schema
             )
         )
+        if dataset.scenario == "vulnerable":
+            # Deliberately unsafe permissions in an isolated synthetic lab. The
+            # application security check reports both PUBLIC and reader access.
+            connection.execute(
+                sql.SQL("GRANT USAGE ON SCHEMA {} TO PUBLIC, ps_reader").format(schema)
+            )
+            connection.execute(
+                sql.SQL("GRANT SELECT ON ALL TABLES IN SCHEMA {} TO PUBLIC, ps_reader").format(
+                    schema
+                )
+            )
         connection.execute(
             "CREATE TABLE IF NOT EXISTS privacyshield_private.pseudonym_keys ("
             "domain text PRIMARY KEY, key_version integer NOT NULL CHECK (key_version > 0),"

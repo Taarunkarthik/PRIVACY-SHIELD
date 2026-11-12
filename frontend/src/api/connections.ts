@@ -33,7 +33,20 @@ export type SchemaTable = {
   foreign_keys: ForeignKey[];
 };
 export type SchemaSnapshot = { snapshot_id: string; discovered_at: string; fingerprint: string; catalog: { schemas: string[]; tables: SchemaTable[] } };
-export type ConnectionCheck = { status: 'ok'; schemas: string[]; table_count: number };
+export type ConnectionSecurityFinding = {
+  code: 'PUBLIC_TABLE_READ' | 'READER_SOURCE_ACCESS' | 'PUBLIC_SCHEMA_CREATE' | 'TABLE_WITHOUT_PRIMARY_KEY';
+  severity: 'CRITICAL' | 'HIGH' | 'MEDIUM';
+  title: string;
+  description: string;
+  schema_name: string;
+  table_name: string | null;
+};
+export type ConnectionCheck = {
+  status: 'ok';
+  schemas: string[];
+  table_count: number;
+  security_findings: ConnectionSecurityFinding[];
+};
 
 /**
  * The connection a page opens on when its address names none: the active one

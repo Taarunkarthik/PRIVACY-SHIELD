@@ -232,7 +232,7 @@ def _refused(connection, statement: str) -> str:
 DENIED = "42501"  # insufficient_privilege
 
 # The table of people in each further demo database, and one policy that fits both.
-EXTRA_PEOPLE = {"hospital": "patients", "university": "students"}
+EXTRA_PEOPLE = {"hospital": "patients", "university": "students", "masked": "customers"}
 PEOPLE_RULES = [
     {"column_name": "id", "action": "KEEP"},
     {"column_name": "full_name", "action": "REDACT"},
@@ -573,6 +573,8 @@ def test_start_script_serves_the_whole_product_from_one_process(instance, tmp_pa
             extra = by_name[dataset.connection_name]
             assert extra["database_name"] == dataset.database
             assert (extra["host"], extra["port"]) == (instance.server.host, instance.server.port)
+            connection_check = session.post(f"/api/v1/connections/{extra['id']}/test")
+            assert connection_check.status_code == 200, connection_check.text
             discovered = session.post(f"/api/v1/connections/{extra['id']}/discover")
             assert discovered.status_code == 200, discovered.text
             catalog = discovered.json()["catalog"]
@@ -590,7 +592,35 @@ def test_start_script_serves_the_whole_product_from_one_process(instance, tmp_pa
                 for item in results
                 if item["matching_rows"] and not item["json_path"]
             }
-            # A policy deploys there too, through the same deployer role.
+            if dataset.scenario == "vulnerable":
+                findings = connection_check.json()["security_findings"]
+                codes = {finding["code"] for finding in findings}
+                assert {"PUBLIC_TABLE_READ", "READER_SOURCE_ACCESS"} <= codes
+                assert all(finding["severity"] == "CRITICAL" for finding in findings)
+                with instance.connect_as(
+                    "ps_reader", "READER_PASSWORD", dataset.database, row_factory=dict_row
+                ) as exposed_reader:
+                    assert exposed_reader.execute(
+                        "SELECT full_name FROM exposed.customers LIMIT 1"
+                    ).fetchone()["full_name"]
+                continue
+            if dataset.scenario == "basic":
+                assert not found[dataset.schema]
+                assert connection_check.json()["security_findings"] == []
+                continue
+            if dataset.scenario == "masked":
+                drafts = session.get(
+                    f"/api/v1/policies?connection_id={extra['id']}&page=1&page_size=100"
+                ).json()["items"]
+                assert {item["table_name"] for item in drafts} == {
+                    "customers",
+                    "accounts",
+                    "transactions",
+                    "support_records",
+                }
+                assert all(item["status"] == "DRAFT" for item in drafts)
+                assert all(item["rules"] for item in drafts)
+            # These safe targets exercise deployment through the same deployer role.
             people = EXTRA_PEOPLE[dataset.schema]
             extra_policy, extra_deployment, extra_preview = hosted.deploy_policy(
                 session,

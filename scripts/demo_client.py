@@ -55,20 +55,24 @@ class DemoClient:
         self.close()
 
 
-def register_target(client: DemoClient):
+def register_target_for(client: DemoClient, name: str, database: str):
     config = local_config()
     for page in range(1, 101):
         results = client.request("GET", f"/connections?page={page}&page_size=100")
         for connection in results["items"]:
-            if connection["name"] == "Synthetic enterprise":
-                if connection["host"] != "target-db" or connection["database_name"] != "enterprise_demo":
-                    raise RuntimeError("Existing demo name refers to another target; it was preserved")
+            if connection["name"] == name:
+                if connection["host"] != "target-db" or connection["database_name"] != database:
+                    raise RuntimeError(f"Existing {name} connection points elsewhere; it was preserved")
                 return connection
         if page * 100 >= results["total"]:
             break
     return client.request("POST", "/connections", {
-        "name": "Synthetic enterprise", "host": "target-db", "port": 5432,
-        "database_name": "enterprise_demo", "ssl_mode": "disable",
+        "name": name, "host": "target-db", "port": 5432,
+        "database_name": database, "ssl_mode": "disable",
         "scanner_username": "ps_scanner", "scanner_password": config["SCANNER_PASSWORD"],
         "deployer_username": "ps_deployer", "deployer_password": config["DEPLOYER_PASSWORD"],
     })
+
+
+def register_target(client: DemoClient):
+    return register_target_for(client, "Synthetic enterprise", "enterprise_demo")

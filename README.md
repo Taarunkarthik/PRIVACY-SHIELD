@@ -270,6 +270,16 @@ Then open **http://localhost:8080**.
 
 With the stack running and an administrator account created, `python scripts/demo.py` walks the full workflow in one step: it registers the synthetic target, runs a bounded scan, then creates, approves and deploys a masking policy, and prints a compact before/after summary of the masked columns. It needs the same prerequisites as the other scripts in `scripts/`.
 
+### Synthetic scenario databases
+
+The local Compose stack provisions three additional isolated PostgreSQL databases alongside the original enterprise, hospital, and university demos:
+
+- **Masked policy lab** — enterprise-shaped synthetic PII with one reviewable DRAFT masking policy per table. Policies are not approved or deployed automatically.
+- **Vulnerability lab** — synthetic source tables with intentionally unsafe `PUBLIC` and restricted-reader access. Use **Test connection** to see catalog-only critical findings; the assessment does not read source records.
+- **Basic inventory** — ordinary categories, suppliers, products, and orders with keys and relationships but no PII fixtures.
+
+After creating the local administrator, run `python scripts/register_demo.py --all` to register and discover all demo targets. This also creates the masked lab's DRAFT policies and checks that the vulnerability lab reports its expected findings. Existing connections and policies are preserved when the script is run again.
+
 Optional local AI recommendations: enable the `ai` Compose profile to run Ollama.
 
 **Hosted option:** a Render Blueprint (`render.yaml`) deploys the full stack. See [`docs/deploy-render.md`](docs/deploy-render.md).

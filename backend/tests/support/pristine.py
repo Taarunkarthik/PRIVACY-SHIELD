@@ -77,7 +77,8 @@ def _assert_pristine(server: PristineServer) -> None:
         ).fetchall()
         databases = connection.execute(
             "SELECT datname FROM pg_catalog.pg_database WHERE datname IN"
-            " ('enterprise_demo', 'hospital_demo', 'university_demo')"
+            " ('enterprise_demo', 'hospital_demo', 'university_demo', 'masked_demo',"
+            " 'vulnerability_demo', 'basic_demo')"
         ).fetchall()
     if roles or databases:
         # Never "clean" a server this test did not create: it may be someone's data.

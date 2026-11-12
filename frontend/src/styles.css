@@ -39,6 +39,22 @@
 @media(max-width:700px) { .scan-launch { padding: 17px; }.scan-launch-fields { gap: 16px; }.scan-launch-fields > .button { font-size: 13px; padding-left: 12px; padding-right: 12px; }.scan-launch-note, .role-note { font-size: 12px; }.sample-notice { font-size: 12px; padding: 12px; }.scan-job-list { padding: 0 16px 16px; }.scan-job-row { padding: 12px 10px; gap: 8px; }.job-list-icon { display: none; }.job-list-date strong { font-size: 13px; }.job-list-date small { font-size: 12px; line-height: 1.6; }.history-progress { display: none; }.scan-status { font-size: 12px; padding: 4px 6px; }.scan-job-row > svg { width: 12px; }.scan-progress { padding: 0 17px 19px; }.scan-progress > div { font-size: 13px; }.scan-progress p, .scan-complete-note, .scan-failure-note p { font-size: 13px; }.scan-failure-note { padding: 0 17px 19px; }.finding-list { padding: 0 16px 16px; }.finding-card { padding: 15px; }.finding-heading { flex-direction: column; gap: 11px; }.finding-heading h3 { font-size: 14px; }.finding-heading h3 > code { display: block; margin-left: 0; margin-top: 6px; font-size: 13px; }.finding-metrics { gap: 10px 17px; font-size: 12px; }.finding-metrics strong { font-size: 14px; }.coverage-details, .coverage-details > div { font-size: 12px; }.findings-error { margin-left: 16px; margin-right: 16px; } }
 .success-box { display: flex; align-items: center; gap: 9px; padding: 11px 14px; border: 1px solid var(--mint-line); border-radius: 6px; background: var(--mint-soft); color: var(--mint); font-size: 14px; line-height: 1.5; margin-bottom: 18px; }
 .success-box svg { flex-shrink: 0; }
+.security-assessment { margin: 0 0 20px; padding: 16px 18px; border: 1px solid var(--line); border-radius: 8px; background: var(--raised); }
+.security-assessment-heading { display: flex; align-items: flex-start; gap: 11px; color: var(--amber); }
+.assessment-clear .security-assessment-heading { color: var(--mint); }
+.security-assessment-heading > svg { flex: 0 0 auto; margin-top: 2px; }
+.security-assessment-heading h2 { font-size: 15px; font-weight: 600; color: var(--text); }
+.security-assessment-heading p { margin-top: 4px; color: var(--text-3); font-size: 13px; line-height: 1.6; }
+.security-assessment ul { display: grid; gap: 9px; margin: 14px 0 0; padding: 0; list-style: none; }
+.security-finding { padding: 12px 13px; border: 1px solid var(--amber-line); border-radius: 6px; background: var(--amber-soft); }
+.security-finding.severity-critical { border-color: var(--danger-line); background: var(--danger-soft); }
+.security-finding > div { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.security-finding strong { color: var(--text); font-size: 14px; font-weight: 600; }
+.security-severity { flex: 0 0 auto; color: var(--danger); font-size: 11px; font-weight: 700; letter-spacing: .05em; }
+.security-finding.severity-high .security-severity { color: var(--amber); }
+.security-finding.severity-medium .security-severity { color: var(--info); }
+.security-finding p { margin-top: 5px; color: var(--text-2); font-size: 13px; line-height: 1.6; }
+.security-finding code { display: block; margin-top: 7px; color: var(--text-3); font-size: 11px; overflow-wrap: anywhere; }
 .connection-form-panel { margin-bottom: 24px; }
 .connection-form { padding: 0 23px 22px; }
 .connection-form fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }

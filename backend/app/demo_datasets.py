@@ -10,6 +10,7 @@ tables and then fills them; it runs once, when ``probe`` does not exist yet.
 """
 
 from dataclasses import dataclass
+from typing import Literal
 
 
 @dataclass(frozen=True)
@@ -20,6 +21,7 @@ class DemoDataset:
     # A table in ``schema``; its presence means the fixtures were already created.
     probe: str
     statements: tuple[str, ...]
+    scenario: Literal["sensitive", "masked", "vulnerable", "basic"] = "sensitive"
 
 
 # Shared building blocks, written once so the three datasets read alike.
@@ -241,8 +243,74 @@ FROM university.students AS s;
     ),
 )
 
-# The first is the one every deployment has had; the others are added beside it.
-DEMO_DATASETS = (ENTERPRISE, HOSPITAL, UNIVERSITY)
+
+def _copy_schema(statements: tuple[str, ...], source: str, destination: str) -> tuple[str, ...]:
+    """Copy one reviewed fixture to a fixed sibling schema."""
+    return tuple(statement.replace(source + ".", destination + ".") for statement in statements)
+
+
+MASKED = DemoDataset(
+    database="masked_demo",
+    schema="masked",
+    connection_name="Masked policy lab",
+    probe="customers",
+    statements=_copy_schema(ENTERPRISE.statements, "enterprise", "masked"),
+    scenario="masked",
+)
+
+VULNERABLE = DemoDataset(
+    database="vulnerability_demo",
+    schema="exposed",
+    connection_name="Vulnerability lab",
+    probe="customers",
+    statements=_copy_schema(ENTERPRISE.statements, "enterprise", "exposed"),
+    scenario="vulnerable",
+)
+
+BASIC = DemoDataset(
+    database="basic_demo",
+    schema="inventory",
+    connection_name="Basic inventory",
+    probe="products",
+    statements=(
+        "CREATE TABLE inventory.categories ("
+        "id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY, name text NOT NULL UNIQUE)",
+        "CREATE TABLE inventory.suppliers ("
+        "id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY, "
+        "name text NOT NULL, country text NOT NULL)",
+        "CREATE TABLE inventory.products ("
+        "id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY, "
+        "category_id integer NOT NULL REFERENCES inventory.categories(id), "
+        "supplier_id integer NOT NULL REFERENCES inventory.suppliers(id), "
+        "name text NOT NULL, unit_price numeric(10,2) NOT NULL CHECK (unit_price >= 0))",
+        "CREATE TABLE inventory.orders ("
+        "id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY, "
+        "product_id integer NOT NULL REFERENCES inventory.products(id), "
+        "quantity integer NOT NULL CHECK (quantity > 0), ordered_at date NOT NULL)",
+        "CREATE INDEX ix_products_category ON inventory.products(category_id)",
+        "CREATE INDEX ix_products_supplier ON inventory.products(supplier_id)",
+        """
+INSERT INTO inventory.categories(name)
+SELECT (ARRAY['Office','Kitchen','Outdoor','Electronics','Storage'])[1 + n % 5]
+       || ' ' || n FROM generate_series(1, 20) AS n;
+INSERT INTO inventory.suppliers(name,country)
+SELECT 'Supplier ' || n,
+       (ARRAY['India','Singapore','Japan','Australia'])[1 + n % 4]
+FROM generate_series(1, 20) AS n;
+INSERT INTO inventory.products(category_id,supplier_id,name,unit_price)
+SELECT 1 + n % 20, 1 + (n * 7) % 20,
+       (ARRAY['Desk lamp','Travel mug','Storage box','Notebook','Garden chair'])[1 + n % 5]
+       || ' ' || n, (n * 137 % 25000)::numeric / 100 + 1
+FROM generate_series(1, 100) AS n;
+INSERT INTO inventory.orders(product_id,quantity,ordered_at)
+SELECT id, 1 + id % 8, date '2025-01-01' + id FROM inventory.products;
+""",
+    ),
+    scenario="basic",
+)
+
+# The first is the one every deployment has had; further databases are added beside it.
+DEMO_DATASETS = (ENTERPRISE, HOSPITAL, UNIVERSITY, MASKED, VULNERABLE, BASIC)
 EXTRA_DATASETS = DEMO_DATASETS[1:]
 
 
