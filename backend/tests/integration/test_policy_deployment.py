@@ -149,7 +149,7 @@ def test_real_deployment_protects_reader_and_preserves_source(admin_client, db):
         assert rows, "the reader view returned no rows"
         assert all(row["full_name"] == "[REDACTED]" for row in rows)
         assert all(row["phone"] is None for row in rows)
-        assert all(row["email"] and row["email"] != "customer1@example.com" for row in rows)
+        assert all(row["email"] and row["email"] != "diyaiyer1@example.com" for row in rows)
         # Pseudonyms are deterministic: the same source value maps to one value.
         repeated = reader_conn.execute(
             f"SELECT count(DISTINCT email) = count(*) AS consistent FROM {view}"
@@ -164,9 +164,9 @@ def test_real_deployment_protects_reader_and_preserves_source(admin_client, db):
         source = scanner_conn.execute(
             "SELECT full_name, email, phone FROM enterprise.customers WHERE id = 1"
         ).fetchone()
-        assert source["full_name"] == "Synthetic Customer 1"
-        assert source["email"] == "customer1@example.com"
-        assert source["phone"] == "+91 90000 00001"
+        assert source["full_name"] == "Diya Iyer"
+        assert source["email"] == "diyaiyer1@example.com"
+        assert source["phone"] == "+91 70037 07919"
 
     # Re-running an already completed deployment is a no-op.
     run_deployment(deployment_id)

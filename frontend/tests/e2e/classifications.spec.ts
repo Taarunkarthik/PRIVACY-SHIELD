@@ -39,7 +39,7 @@ test('real model classifies a selected email finding as an advisory recommendati
   await expect(recommendation.getByText('Email address', { exact: true })).toBeVisible();
   await expect(recommendation.getByText('Requires approval', { exact: true })).toBeVisible();
   await expect(recommendation.locator('.recommendation-reason')).not.toBeEmpty();
-  await expect(recommendation).not.toContainText('customer1@example.com');
+  await expect(recommendation).not.toContainText('diyaiyer1@example.com');
   await expect(recommendations).toContainText('AI scores are heuristic signals');
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.screenshot({ path: testInfo.outputPath('classification-desktop.png'), fullPage: true });

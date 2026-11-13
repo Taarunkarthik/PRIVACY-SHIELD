@@ -197,7 +197,7 @@ def test_inline_mode_runs_scan_classification_and_deployment_without_a_broker(
         assert f"Job ended: {kind} {job_id}" in log, log
     assert "Jobs run in-process" in log
     # No source value, credential or key reached the server's log.
-    for secret in (*passwords.values(), password, "customer1@example.com", "Synthetic Customer"):
+    for secret in (*passwords.values(), password, "diyaiyer1@example.com", "Diya Iyer"):
         assert secret not in log
 
     # A clean stop: on SIGTERM the server drains, stops the job threads through

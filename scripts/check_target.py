@@ -17,7 +17,7 @@ def denied(connection: psycopg.Connection, statement: str) -> None:
 def main() -> None:
     settings = dict(host="target-db", dbname="enterprise_demo", connect_timeout=5)
     with psycopg.connect(**settings, user="ps_scanner", password=os.environ["SCANNER_PASSWORD"]) as conn:
-        assert conn.execute("SELECT count(*) FROM enterprise.customers").fetchone()[0] == 100
+        assert conn.execute("SELECT count(*) FROM enterprise.customers").fetchone()[0] == 200
         conn.rollback()
         conn.autocommit = True
         conn.execute("SET default_transaction_read_only = off")

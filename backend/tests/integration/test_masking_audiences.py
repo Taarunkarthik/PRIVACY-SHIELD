@@ -361,16 +361,16 @@ def test_each_audience_reads_only_its_own_view(admin_client, db, monkeypatch, su
 
     # Each role reads its own view, with its own masking of the same row.
     expected_token = superuser.execute(
-        "SELECT encode(extensions.hmac(convert_to('customer7@example.com', 'UTF8'), "
+        "SELECT encode(extensions.hmac(convert_to('ishadas7@example.com', 'UTF8'), "
         "(SELECT key FROM privacyshield_private.pseudonym_keys "
         "WHERE domain = 'demo' AND key_version = 1), 'sha256'), 'hex') AS token"
     ).fetchone()["token"]
     expected = {
         "reader": {"full_name": None, "email": "c***@example.com", "phone": None},
         "support": {
-            "full_name": "Synthetic Customer 7",
+            "full_name": "Isha Das",
             "email": "c***@example.com",
-            "phone": "+** ***** *0007",
+            "phone": "+** ***** *5433",
         },
         "analyst": {"full_name": None, "email": expected_token, "phone": None},
     }
@@ -397,7 +397,7 @@ def test_each_audience_reads_only_its_own_view(admin_client, db, monkeypatch, su
         counts = session.execute(
             f"SELECT count(*) AS total, count(DISTINCT email) AS tokens FROM {view}"
         ).fetchone()
-        assert counts == {"total": 100, "tokens": 100}
+        assert counts == {"total": 200, "tokens": 200}
 
     # Evidence through the API: that audience's view, rows and role.
     for audience, role in ROLES.items():
@@ -424,13 +424,13 @@ def test_each_audience_reads_only_its_own_view(admin_client, db, monkeypatch, su
                 assert record["email"] == "c***@example.com"
             if audience == "support":
                 assert re.fullmatch(r"\+\*\* \*{5} \*\d{4}", record["phone"])
-                assert record["full_name"].startswith("Synthetic Customer ")
+                assert re.fullmatch(r"[A-Z][a-z]+ [A-Z][a-z]+", record["full_name"])
             else:
                 assert record["full_name"] is None
             if audience == "reader":
                 assert record["phone"] is None
         # No unmasked email or phone number reaches any response.
-        assert "customer1@" not in output.text and "+91 90000" not in output.text
+        assert "diyaiyer1@" not in output.text and "+91 70037" not in output.text
     default = admin_client.get(f"/api/v1/policies/{policy_id}/protected-output").json()
     assert default["audience"] == "reader" and default["access"]["reader_role"] == "ps_reader"
     viewed = db.scalar(

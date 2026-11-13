@@ -194,7 +194,7 @@ jobs:
           else:
               raise SystemExit("Target did not enable password authentication")
           with psycopg.connect(**settings, password=os.environ["SCANNER_PASSWORD"]) as conn:
-              assert conn.execute("SELECT count(*) FROM enterprise.customers").fetchone()[0] == 100
+              assert conn.execute("SELECT count(*) FROM enterprise.customers").fetchone()[0] == 200
           print("Target initialized from repository fixtures; password authentication confirmed")
           PY
       - name: Static checks and unit tests

@@ -173,7 +173,7 @@ def test_format_masks_samples_and_protected_output(admin_client, db, monkeypatch
     assert first_after["id"] == first_before["id"]
     # Columns without a rule are NULL after masking, whatever the input was.
     assert first_before["address"] and first_after["address"] is None
-    assert "customer1@example.com" not in samples.text
+    assert "diyaiyer1@example.com" not in samples.text
 
     # Protected output exists only for a deployed policy.
     assert admin_client.get(f"/api/v1/policies/{policy_id}/protected-output").status_code == 409
@@ -552,7 +552,7 @@ def test_sample_preview_shows_no_real_pseudonym(admin_client, db):
     view = f'{preview["view_schema"]}."{preview["view_name"]}"'
     with _connect(host, port, "ps_reader", passwords["reader"]) as reader:
         tokens = [r["customer_id"] for r in reader.execute(f"SELECT customer_id FROM {view}")]
-    assert len(tokens) == 100 and all(len(token) == 64 for token in tokens)
+    assert len(tokens) == 260 and all(len(token) == 64 for token in tokens)
     assert hashlib.sha256(b"1").hexdigest() not in tokens
 
 

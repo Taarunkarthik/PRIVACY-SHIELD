@@ -38,7 +38,7 @@ pytestmark = pytest.mark.integration
 # Written out here on purpose, independent of the constants in the application.
 SHAPE_PATTERN = re.compile(r"[aA9+?@.\-_()/:, ]{1,48}")
 DEMO_TABLES = {"customers", "accounts", "transactions", "support_records"}
-# Each demo table holds 100 rows; a quarter keeps this real scan short.
+# The demo holds 200 customers and 3,900 transactions; a slice keeps this real scan short.
 SAMPLE_ROWS = 25
 # Shapes are stored for character columns only.
 CHARACTER_COLUMNS = {
@@ -62,15 +62,15 @@ OTHER_COLUMNS = {
 }
 RAW_FRAGMENTS = [
     "@example",
-    "customer1",
-    "alternate",
-    "Synthetic",
-    "ABCDE",
-    "2345 6789",
-    "+91 90000",
-    "DEMO0",
-    "Example Street",
-    "Please contact",
+    "diyaiyer1",
+    "alt1",
+    "AKJ",
+    "70037",
+    "3131 4391",
+    "UPI/P2M",
+    "Park Street",
+    "Ticket SR-",
+    "SWIGGY",
 ]
 
 
@@ -234,8 +234,8 @@ def test_real_scan_stores_shapes_and_only_uncertain_columns_reach_the_model(
         shaped += bool(shapes)
     assert shaped == len(CHARACTER_COLUMNS)
 
-    # The demo addresses are customer1 to customer100 at one domain. Only nine
-    # have a single digit, so in any 25 rows the two-or-more-digit form leads.
+    # Every demo address ends with the row number at one domain, so the stored
+    # form is the same for every sampled row.
     email = column[("customers", "email")]
     assert email["sampled_rows"] == SAMPLE_ROWS
     top = email["sanitized_evidence"]["shapes"][0]

@@ -34,7 +34,7 @@ test('real database discovery exposes schema and composite relationships without
   await expect(page.getByText('Composite foreign key', { exact: true })).toBeVisible();
   await expect(page.getByText('related_account_id, related_sequence_number', { exact: true })).toBeVisible();
   await expect(page.getByText('(account_id, sequence_number)', { exact: true })).toBeVisible();
-  await expect(page.getByText('customer1@example.com', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('diyaiyer1@example.com', { exact: true })).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath('schema-desktop.png'), fullPage: true });
   await page.getByRole('button', { name: 'enterprise.transactions', exact: true }).click();
   await expect(page.getByText('Composite primary key', { exact: true })).toBeVisible();

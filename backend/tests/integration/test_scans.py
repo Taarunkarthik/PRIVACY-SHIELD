@@ -148,16 +148,16 @@ def test_real_api_scan_detects_scalar_json_and_free_text_without_retaining_sampl
     assert all(0 <= item["matching_rows"] <= item["sampled_rows"] <= 3 for item in items)
     raw = json.dumps(report)
     for forbidden in [
-        "customer1@example.com",
-        "alternate1@example.org",
-        "ABCDE0001F",
-        "2345 6789 0001",
+        "diyaiyer1@example.com",
+        "alt1@example.org",
+        "AKJPB0419H",
+        "3131 4391 0977",
         scan_config["scanner_password"],
     ]:
         assert forbidden not in raw
     stored = db.scalars(select(ScanResult).where(ScanResult.scan_job_id == uuid.UUID(job_id))).all()
     assert len(stored) == len(items)
-    assert "customer1@example.com" not in json.dumps([row.sanitized_evidence for row in stored])
+    assert "diyaiyer1@example.com" not in json.dumps([row.sanitized_evidence for row in stored])
     old_ids = {item["id"] for item in items}
     celery_app.send_task("privacyshield.scan", args=[job_id], ignore_result=True)
     worker_barrier()

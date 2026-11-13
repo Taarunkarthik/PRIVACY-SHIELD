@@ -42,9 +42,9 @@ test('real worker scans synthetic rows and exposes sanitized sampled findings', 
     hasAadhaar ||= labels.some((text) => text.includes('Aadhaar candidate'));
     hasJsonPath ||= (await findings.locator('.finding-heading code').count()) > 0;
     hasFreeText ||= (await findings.getByRole('article', { name: 'Finding enterprise.support_records.body' }).count()) > 0;
-    await expect(findings).not.toContainText('customer1@example.com');
-    await expect(findings).not.toContainText('Please contact customer');
-    await expect(findings).not.toContainText('ABCDE0001F');
+    await expect(findings).not.toContainText('diyaiyer1@example.com');
+    await expect(findings).not.toContainText('Ticket SR-');
+    await expect(findings).not.toContainText('AKJPB0419H');
     const next = findings.getByRole('button', { name: 'Next', exact: true });
     if (!(await next.count()) || !(await next.isEnabled())) break;
     await next.click();

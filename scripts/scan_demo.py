@@ -42,8 +42,8 @@ def run_scan(client: DemoClient, sample_limit: int = 100, timeout: int = 240) ->
                        for row in rows), "Sample bounds violated"
             encoded = json.dumps(rows)
             # Known fabricated fixtures only, never print a failed response body.
-            for fixture in ("customer1@example.com", "alternate1@example.org", "ABCDE0001F",
-                            "2345 6789 0001", "Please contact customer"):
+            for fixture in ("diyaiyer1@example.com", "alt1@example.org", "AKJPB0419H",
+                            "3131 4391 0977", "Ticket SR-00001"):
                 assert fixture not in encoded, "Raw synthetic sample leaked in results"
             categories = {category for row in rows for category in row["category_counts"]}
             assert {"EMAIL_ADDRESS", "PAN_CANDIDATE", "AADHAAR_CANDIDATE"} <= categories, \

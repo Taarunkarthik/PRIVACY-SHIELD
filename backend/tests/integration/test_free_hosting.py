@@ -336,7 +336,7 @@ def test_bootstrap_as_non_superuser_provisions_one_instance(instance, tmp_path):
         assert not (superuser or createrole or createdb or replication or bypassrls), role
         # The view owner and the two audience group roles are never logged in to.
         assert can_login is (role not in {"ps_view_owner", "ps_support", "ps_analyst"})
-    assert before["demo_rows"] == [100, 100, 100, 100]
+    assert before["demo_rows"] == [200, 260, 3900, 240]
 
     # --- target database: reader, scanner, deployer
     with instance.connect_as("ps_reader", "READER_PASSWORD", "enterprise_demo") as reader:
@@ -344,7 +344,7 @@ def test_bootstrap_as_non_superuser_provisions_one_instance(instance, tmp_path):
         assert _refused(reader, "SELECT * FROM privacyshield_private.pseudonym_keys") == DENIED
         assert _refused(reader, "CREATE TABLE privacyshield_masked.t (id int)") == DENIED
     with instance.connect_as("ps_scanner", "SCANNER_PASSWORD", "enterprise_demo") as scanner:
-        assert scanner.execute("SELECT count(*) FROM enterprise.customers").fetchone()[0] == 100
+        assert scanner.execute("SELECT count(*) FROM enterprise.customers").fetchone()[0] == 200
         assert scanner.execute("SHOW default_transaction_read_only").fetchone()[0] == "on"
         assert _refused(scanner, "UPDATE enterprise.customers SET phone = 'x'") == "25006"
         # Even with the session default switched off, the grants allow no write.
@@ -352,7 +352,7 @@ def test_bootstrap_as_non_superuser_provisions_one_instance(instance, tmp_path):
         assert _refused(scanner, "UPDATE enterprise.customers SET phone = 'x'") == DENIED
         assert _refused(scanner, "DELETE FROM enterprise.support_records") == DENIED
         assert (
-            _refused(scanner, "INSERT INTO enterprise.transactions VALUES (1, 99, 1, 'x')")
+            _refused(scanner, "INSERT INTO enterprise.transactions VALUES (1, 99, now(), 1, 'x')")
             == DENIED
         )
         assert _refused(scanner, "CREATE TABLE enterprise.t (id int)") == DENIED
@@ -361,7 +361,7 @@ def test_bootstrap_as_non_superuser_provisions_one_instance(instance, tmp_path):
         # NOINHERIT: nothing until it explicitly assumes the view-owner role.
         assert _refused(deployer, "SELECT * FROM enterprise.customers LIMIT 1") == DENIED
         deployer.execute("SET ROLE ps_view_owner")
-        assert deployer.execute("SELECT count(*) FROM enterprise.customers").fetchone()[0] == 100
+        assert deployer.execute("SELECT count(*) FROM enterprise.customers").fetchone()[0] == 200
         assert _refused(deployer, "UPDATE enterprise.customers SET phone = 'x'") == DENIED
 
     # --- control database: audit rows are append-only for the application role
@@ -715,7 +715,7 @@ def test_start_script_serves_the_whole_product_from_one_process(instance, tmp_pa
             text = server.log()
             for value in (*instance.all_secrets(), "a-different-password-123"):
                 assert value not in text
-            assert "customer1@example.com" not in text and "Synthetic Customer" not in text
+            assert "diyaiyer1@example.com" not in text and "Diya Iyer" not in text
     finally:
         for server in servers:
             server.kill()

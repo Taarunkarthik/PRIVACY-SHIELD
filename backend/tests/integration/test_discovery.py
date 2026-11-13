@@ -124,7 +124,7 @@ def test_discovery_real_schema_composite_keys_and_immutable_snapshots(
     )
     assert profile["is_jsonb"] is True and profile["nullable"] is False
     assert all(table["schema"] == "enterprise" for table in tables.values())
-    assert "customer1@example.com" not in discovered.text
+    assert "diyaiyer1@example.com" not in discovered.text
     assert target_config["scanner_password"] not in discovered.text
     second = client.post(path + "/discover", json={"schemas": ["enterprise"]}).json()
     assert first["snapshot_id"] != second["snapshot_id"]
