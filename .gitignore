@@ -21,4 +21,7 @@ Thumbs.db
 *.key
 *.dump
 *.backup
+# Office documents and their lock files
+*.pptx
+~$*
 .local/
