@@ -98,6 +98,26 @@ describe('connection management', () => {
     expect(document.body).not.toHaveTextContent('should-never-render-secret');
   });
 
+  it('fills the connection fields from a pasted URL', async () => {
+    window.history.replaceState({}, '', '/connections');
+    const fetchMock = server({ items: [] });
+    const visitor = userEvent.setup({ delay: null });
+    render(<App />);
+    await visitor.click((await screen.findAllByRole('button', { name: 'Add database' }))[0]);
+    await fill(visitor, screen.getByLabelText(/Connection URL/), 'postgresql://ps_reader:pa%40ss@db.example.test:6543/reports?sslmode=require');
+    expect(await screen.findByText(/Parsed db\.example\.test:6543 \/ reports/)).toBeInTheDocument();
+    expect(screen.getByLabelText('Connection name')).toHaveValue('reports');
+    expect(screen.getByLabelText('Scanner password')).toHaveValue('pa@ss');
+    await visitor.click(screen.getByRole('button', { name: 'Save connection' }));
+    await screen.findByRole('article', { name: 'Connection Synthetic enterprise' });
+    const saved = fetchMock.mock.calls.find(([path, request]) => path === '/api/v1/connections' && request?.method === 'POST');
+    expect(JSON.parse(String(saved?.[1]?.body))).toMatchObject({
+      name: 'reports', host: 'db.example.test', port: 6543, database_name: 'reports',
+      ssl_mode: 'require', scanner_username: 'ps_reader', scanner_password: 'pa@ss',
+    });
+    expect(screen.queryByLabelText(/Connection URL/)).not.toBeInTheDocument();
+  });
+
   it('shows connection records to auditors without credential or discovery actions', async () => {
     window.history.replaceState({}, '', '/connections');
     server({ role: 'AUDITOR' });

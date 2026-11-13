@@ -20,6 +20,14 @@ export type ConnectionInput = Pick<Connection, 'name' | 'host' | 'port' | 'datab
   deployer_password?: string;
   is_active?: boolean;
 };
+export type ParsedConnectionUrl = {
+  host: string;
+  port: number;
+  database: string;
+  username: string;
+  password: string;
+  sslMode?: Connection['ssl_mode'];
+};
 export type SchemaColumn = { name: string; data_type: string; udt_name: string; nullable: boolean; ordinal: number; is_primary_key: boolean; is_jsonb: boolean };
 export type ForeignKey = { name: string; columns: string[]; referenced_schema: string; referenced_table: string; referenced_columns: string[] };
 export type SchemaTable = {
@@ -72,4 +80,49 @@ export function connectionError(error: unknown): string {
     return error.message;
   }
   return 'This request could not be completed. Please try again.';
+}
+
+/**
+ * Reads a pasted `postgresql://` URL into the fields the form already submits.
+ * Returns null for anything incomplete, so a half-typed URL never overwrites
+ * fields the operator has already set.
+ *
+ * `prefer` and `allow` are not among the four modes this product offers, so they
+ * take the closest one that still encrypts (`require`) or does not (`disable`).
+ */
+export function parseConnectionUrl(value: string): ParsedConnectionUrl | null {
+  const text = value.trim();
+  let url: URL;
+  try {
+    url = new URL(text);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== 'postgresql:' && url.protocol !== 'postgres:') return null;
+
+  const host = url.hostname.replace(/^\[(.*)]$/, '$1');
+  let database: string;
+  let username: string;
+  let password: string;
+  try {
+    database = decodeURIComponent(url.pathname.replace(/^\/+/, ''));
+    username = decodeURIComponent(url.username);
+    password = decodeURIComponent(url.password);
+  } catch {
+    return null;
+  }
+  if (!host || !username || !database || database.includes('/')) return null;
+
+  const port = url.port ? Number(url.port) : 5432;
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
+
+  const ssl = (url.searchParams.get('sslmode') ?? '').toLowerCase();
+  const sslMode = ssl === 'prefer' ? 'require'
+    : ssl === 'allow' ? 'disable'
+      : ssl === 'true' || ssl === '1' ? 'require'
+        : ssl === 'false' || ssl === '0' ? 'disable'
+          : ssl === 'disable' || ssl === 'require' || ssl === 'verify-ca' || ssl === 'verify-full' ? ssl
+            : undefined;
+
+  return { host, port, database, username, password, sslMode };
 }

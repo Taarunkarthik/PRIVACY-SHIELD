@@ -3,8 +3,8 @@ import type { FormEvent } from 'react';
 import { LockKeyhole, Save, X } from 'lucide-react';
 import { api } from '../api/client';
 import { useAuth } from '../api/auth';
-import type { Connection, ConnectionInput } from '../api/connections';
-import { connectionError } from '../api/connections';
+import type { Connection, ConnectionInput, ParsedConnectionUrl } from '../api/connections';
+import { connectionError, parseConnectionUrl } from '../api/connections';
 
 export function ConnectionForm({ connection, onSaved, onCancel }: { connection?: Connection; onSaved: () => void; onCancel: () => void }) {
   const { user } = useAuth();
@@ -17,9 +17,38 @@ export function ConnectionForm({ connection, onSaved, onCancel }: { connection?:
   const [scannerPassword, setScannerPassword] = useState('');
   const [deployerPassword, setDeployerPassword] = useState('');
   const [changeDeployer, setChangeDeployer] = useState(false);
+  const [urlValue, setUrlValue] = useState('');
+  const [urlParsed, setUrlParsed] = useState<ParsedConnectionUrl | null>(null);
+  const [urlError, setUrlError] = useState('');
+  const [advancedOpen, setAdvancedOpen] = useState(Boolean(connection));
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const scannerPasswordRequired = !connection || details.scanner_username !== connection.scanner_username;
+
+  // A pasted URL is a shortcut for the fields below, never a second source of
+  // truth: it fills them, and the operator can still correct any of them.
+  function applyConnectionUrl(value: string) {
+    setUrlValue(value);
+    if (!value.trim()) { setUrlParsed(null); setUrlError(''); return; }
+    const parsed = parseConnectionUrl(value);
+    if (!parsed) {
+      setUrlParsed(null);
+      setUrlError('Paste a complete postgresql:// URL, or fill the fields below.');
+      return;
+    }
+    setUrlError('');
+    setUrlParsed(parsed);
+    setDetails((current) => ({
+      ...current,
+      host: parsed.host,
+      port: String(parsed.port),
+      database_name: parsed.database,
+      scanner_username: parsed.username,
+      ...(parsed.sslMode ? { ssl_mode: parsed.sslMode } : {}),
+      name: current.name.trim() ? current.name : parsed.database,
+    }));
+    if (parsed.password) setScannerPassword(parsed.password);
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -50,14 +79,24 @@ export function ConnectionForm({ connection, onSaved, onCancel }: { connection?:
     <form onSubmit={submit} className="connection-form">
       <fieldset disabled={saving}>
         <div className="form-grid">
-          <div className="form-field span-two"><label htmlFor="connection-name">Connection name</label><input autoFocus id="connection-name" value={details.name} onChange={(event) => setDetails({ ...details, name: event.target.value })} placeholder="e.g. Synthetic enterprise" required maxLength={120} /></div>
+          {!connection && <div className="form-field span-two">
+            <label htmlFor="connection-url">Connection URL <span>· optional, fills the fields below</span></label>
+            <input id="connection-url" type="password" value={urlValue} onChange={(event) => applyConnectionUrl(event.target.value)} placeholder="postgresql://ps_scanner:password@target-db:5432/enterprise_demo?sslmode=disable" autoComplete="off" spellCheck={false} />
+            {urlError ? <p className="connection-url-note is-error" role="status">{urlError}</p> : urlParsed ? <p className="connection-url-note" role="status">Parsed {urlParsed.host}:{urlParsed.port} / {urlParsed.database} · user {urlParsed.username}{urlParsed.sslMode ? ` · TLS ${urlParsed.sslMode}` : ''}</p> : null}
+          </div>}
+          <div className="form-field span-two"><label htmlFor="connection-name">Connection name</label><input autoFocus={!connection} id="connection-name" value={details.name} onChange={(event) => setDetails({ ...details, name: event.target.value })} placeholder="e.g. Synthetic enterprise" required maxLength={120} /></div>
           <div className="form-field"><label htmlFor="connection-host">Database host</label><input id="connection-host" value={details.host} onChange={(event) => setDetails({ ...details, host: event.target.value })} required maxLength={255} spellCheck={false} /></div>
-          <div className="form-field"><label htmlFor="connection-port">Port</label><input id="connection-port" type="number" min={1} max={65535} value={details.port} onChange={(event) => setDetails({ ...details, port: event.target.value })} required /></div>
-          <div className="form-field"><label htmlFor="connection-database">Database name</label><input id="connection-database" value={details.database_name} onChange={(event) => setDetails({ ...details, database_name: event.target.value })} required maxLength={63} spellCheck={false} /></div>
-          <div className="form-field"><label htmlFor="connection-ssl">TLS mode</label><select id="connection-ssl" value={details.ssl_mode} onChange={(event) => setDetails({ ...details, ssl_mode: event.target.value as Connection['ssl_mode'] })}><option value="disable">Disabled — local demo only</option><option value="require">Require encryption</option><option value="verify-ca">Verify certificate authority</option><option value="verify-full">Verify certificate and hostname</option></select></div>
-          <div className="form-field"><label htmlFor="scanner-username">Scanner username</label><input id="scanner-username" value={details.scanner_username} onChange={(event) => setDetails({ ...details, scanner_username: event.target.value })} required maxLength={63} autoComplete="off" spellCheck={false} /></div>
           <div className="form-field"><label htmlFor="scanner-password">Scanner password{connection && <span> · {scannerPasswordRequired ? 'required for changed user' : 'leave blank to keep'}</span>}</label><input id="scanner-password" type="password" value={scannerPassword} onChange={(event) => setScannerPassword(event.target.value)} required={scannerPasswordRequired} maxLength={1024} autoComplete="new-password" /></div>
         </div>
+        <details className="advanced-fields" open={advancedOpen} onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}>
+          <summary>Advanced connection fields</summary>
+          <div className="form-grid">
+            <div className="form-field"><label htmlFor="connection-port">Port</label><input id="connection-port" type="number" min={1} max={65535} value={details.port} onChange={(event) => setDetails({ ...details, port: event.target.value })} required /></div>
+            <div className="form-field"><label htmlFor="connection-database">Database name</label><input id="connection-database" value={details.database_name} onChange={(event) => setDetails({ ...details, database_name: event.target.value })} required maxLength={63} spellCheck={false} /></div>
+            <div className="form-field"><label htmlFor="connection-ssl">TLS mode</label><select id="connection-ssl" value={details.ssl_mode} onChange={(event) => setDetails({ ...details, ssl_mode: event.target.value as Connection['ssl_mode'] })}><option value="disable">Disabled — local demo only</option><option value="require">Require encryption</option><option value="verify-ca">Verify certificate authority</option><option value="verify-full">Verify certificate and hostname</option></select></div>
+            <div className="form-field"><label htmlFor="scanner-username">Scanner username</label><input id="scanner-username" value={details.scanner_username} onChange={(event) => setDetails({ ...details, scanner_username: event.target.value })} required maxLength={63} autoComplete="off" spellCheck={false} /></div>
+          </div>
+        </details>
         <label className="checkbox-field"><input type="checkbox" checked={changeDeployer} onChange={(event) => { setChangeDeployer(event.target.checked); setDeployerPassword(''); }} /><span>{connection?.deployer_username ? 'Replace deployment credentials' : 'Add deployment credentials'} <small>Optional; not needed for discovery.</small></span></label>
         {changeDeployer && <div className="form-grid deployment-fields"><div className="form-field"><label htmlFor="deployer-username">Deployment username</label><input id="deployer-username" value={details.deployer_username} onChange={(event) => setDetails({ ...details, deployer_username: event.target.value })} required maxLength={63} autoComplete="off" spellCheck={false} /></div><div className="form-field"><label htmlFor="deployer-password">Deployment password</label><input id="deployer-password" type="password" value={deployerPassword} onChange={(event) => setDeployerPassword(event.target.value)} required maxLength={1024} autoComplete="new-password" /></div></div>}
         {connection && <label className="checkbox-field"><input type="checkbox" checked={details.is_active} onChange={(event) => setDetails({ ...details, is_active: event.target.checked })} /><span>Connection is active <small>Inactive connections keep their saved discovery history.</small></span></label>}
